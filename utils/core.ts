@@ -1,4 +1,5 @@
-import { createVertexShaderBuffer, wgslShader } from '@/constant/photo';
+import { wgslShader } from '@/constant/photo';
+import { mat4, vec3 } from 'gl-matrix';
 
 class InfiniteScrollingPhotos {
   constructor(selectors: string) {
@@ -22,11 +23,12 @@ class InfiniteScrollingPhotos {
     this.context = context;
     this.cw = window.innerWidth;
     this.ch = window.innerHeight;
-    this.gap = 12;
+    this.gap = 20;
     this.col = 4;
+    this.vertexGap = [20 / window.innerWidth, 20 / window.innerHeight];
     this.photos = [];
     
-    this.run();
+    this.resize();
 
     window.addEventListener('resize', () => this.resize());
   }
@@ -37,19 +39,23 @@ class InfiniteScrollingPhotos {
   adapter: GPUAdapter | undefined;
   device: GPUDevice | undefined;
   textureFormat: GPUTextureFormat | undefined;
-  renderPassDescriptor: GPURenderPassDescriptor | undefined;
+  pipeline: GPURenderPipeline | undefined;
+  vertexData: any;
 
   cw: number;
   ch: number;
   gap: number;
   col: number;
+  vertexGap: [number, number];
 
   photos: { img: ImageBitmap, rate: number, size: [number, number], vertex: [number, number] }[];
 
   async run() {
-    const { device, format, renderPassDescriptor } = await this.initGPU();
-    const { pipeline, vertex } = await this.initPipeline(device, format);
-    this.draw(device, pipeline, renderPassDescriptor, vertex);
+    await this.initGPU();
+    await this.initPipeline();
+    this.calcPhotoRenderSize();
+    this.calcVertexData();
+    this.draw();
   }
 
   async initGPU() {
@@ -69,24 +75,17 @@ class InfiniteScrollingPhotos {
 
     this.context.configure({ device, format, alphaMode: 'opaque' });
 
-    const renderPassDescriptor: GPURenderPassDescriptor = {
-      colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
-        clearValue: [0.0, 0.0, 0.0, 1.0],
-        loadOp: 'clear',
-        storeOp: 'store',
-      }]
-    };
-    
     this.adapter = adapter;
     this.device = device;
     this.textureFormat = format;
-    this.renderPassDescriptor = renderPassDescriptor;
-
-    return { adapter, device, format, renderPassDescriptor }
   }
 
-  async initPipeline(device: GPUDevice, format: GPUTextureFormat) {
+  async initPipeline() {
+    const { device, textureFormat } = this;
+
+    if (device === undefined || textureFormat === undefined) {
+      throw new Error('WebGPU device or texture format not found');
+    }
 
     const triangleShader = device.createShaderModule({ code: wgslShader });
 
@@ -107,31 +106,65 @@ class InfiniteScrollingPhotos {
       fragment: {
         module: triangleShader,
         entryPoint: 'frag_main',
-        targets: [{ format }]
+        targets: [{ format: textureFormat }]
       },
       primitive: {
         topology: 'triangle-list',
       }
     });
 
-    const { buffer: vertexBuffer, count: vertexCount } = createVertexShaderBuffer(device);
+    const vertexBuffer = device.createBuffer({
+      size: 6 * 3 * 4,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
 
-    const vertex = {
-      buffer: vertexBuffer,
-      count: vertexCount,
-    }
+    const mvpBuffer = device.createBuffer({
+      size: 16 * 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
-    return { pipeline, vertex }
+    this.pipeline = pipeline;
   }
 
-  draw(device: GPUDevice, pipeline: GPURenderPipeline, renderPassDescriptor: GPURenderPassDescriptor, vertex: any) {
+  draw() {
+    const { device, pipeline, vertexData } = this;
+
+    if (device === undefined || pipeline === undefined || vertexData === undefined) {
+      throw new Error('WebGPU device or pipeline or render pass descriptor or vertex data not found');
+    }
+
     const commandEncoder = device.createCommandEncoder();
-    const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
+    const renderPass = commandEncoder.beginRenderPass({
+      colorAttachments: [{
+        view: this.context.getCurrentTexture().createView(),
+        clearValue: [0.0, 0.0, 0.0, 1.0],
+        loadOp: 'clear',
+        storeOp: 'store',
+      }]
+    });
+
     renderPass.setPipeline(pipeline);
-    renderPass.setVertexBuffer(0, vertex.buffer);
-    renderPass.draw(vertex.count);
+    renderPass.setVertexBuffer(0, vertexData.buffer);
+    renderPass.draw(vertexData.count);
     renderPass.end();
     device.queue.submit([commandEncoder.finish()]);
+
+    // requestAnimationFrame(() => this.draw());
+  }
+
+  test() {
+    const pos = [0, -10, -10];
+
+    const modalViewMatrix = mat4.create();
+    mat4.translate(modalViewMatrix, modalViewMatrix, vec3.fromValues(pos[0], pos[1], pos[2]));
+
+    const projectionMatrix = mat4.create();
+    mat4.perspective(projectionMatrix, Math.PI / 4, this.cw / this.ch, 0.1, 1000.0);
+
+    const mvpMatrix = mat4.create();
+    mat4.multiply(mvpMatrix, projectionMatrix, modalViewMatrix);
+
+
   }
 
   resize() {
@@ -142,18 +175,62 @@ class InfiniteScrollingPhotos {
     this.canvas.width = vw;
     this.canvas.height = vh;
     this.calcPhotoRenderSize();
-    this.render();
+    this.calcVertexData();
+  }
+  
+  calcVertexData() {
+    const { device, photos, vertexGap } = this;
+
+    if (device === undefined) {
+      return console.log('WebGPU device not found');
+    }
+
+    if (photos.length === 0) {
+      return console.log('No photos to render');
+    }
+
+    const vertexArray = [];
+
+    let startX = -1.0 + vertexGap[0];
+    let startY = +1.0 - vertexGap[1];
+
+    for (let i = 0; i < photos.length; i++) {
+      const { vertex: [x, y] } = photos[i];
+      vertexArray.push(...[startX + 0, startY + 0, 0.0])
+      vertexArray.push(...[startX + 0, startY - y, 0.0])
+      vertexArray.push(...[startX + x, startY - y, 0.0])
+  
+      vertexArray.push(...[startX + x, startY + 0, 0.0])
+      vertexArray.push(...[startX + x, startY - y, 0.0])
+      vertexArray.push(...[startX + 0, startY + 0, 0.0])
+      if (i === 0) {
+        console.log(vertexArray)
+      }
+      startX += x + vertexGap[0];
+    }
+
+    const buffer = device.createBuffer({
+      size: vertexArray.length * 4,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    device.queue.writeBuffer(buffer, 0, new Float32Array(vertexArray));
+
+    this.vertexData = { buffer, count: vertexArray.length / 3 };
+      
+    this.draw();
   }
 
   calcPhotoRenderSize() {
+    this.vertexGap = [this.gap / this.cw, this.gap / this.ch];
     if (this.photos.length > 0) {
       const colW = this.cw / (this.col + 1);
       this.photos.forEach(photo => {
         const colH = colW / photo.rate;
         photo.size = [colW, colH]
-        photo.vertex = [colW / this.cw, colH / this.ch]
+        photo.vertex = [colW / this.cw * 2, colH / this.ch * 2]
       });
-      console.log(this.photos)
+      console.log(this.photos[0].vertex)
     }
   }
 
@@ -170,14 +247,10 @@ class InfiniteScrollingPhotos {
         vertex: [0, 0]
       });
 
-      if (--count === 0) {
-        this.resize();
+      if (count-- === 0) {
+        this.run();
       }
     });
-  }
-
-  render() {
-    
   }
 }
 
