@@ -24,9 +24,9 @@ class InfiniteScrollingPhotos {
     this.cw = window.innerWidth;
     this.ch = window.innerHeight;
     this.aspect = this.cw / this.ch;
-    this.gap = 20;
+    this.gap = 0.02;
     this.col = 4;
-    this.vertexGap = [20 / window.innerWidth, 20 / window.innerHeight];
+    this.gridLayout = [6, 4];
     this.photos = [];
     
     this.resize();
@@ -43,14 +43,14 @@ class InfiniteScrollingPhotos {
   pipeline: GPURenderPipeline | undefined;
   vertexData: GPUBuffer | undefined;
   mvpData: GPUBuffer | undefined;
-  uniformGroup: GPUBindGroup | undefined;
+  group: GPUBindGroup | undefined;
 
   cw: number;
   ch: number;
   aspect: number;
   gap: number;
   col: number;
-  vertexGap: [number, number];
+  gridLayout: [number, number]; // [col, row]
 
   photos: { img: ImageBitmap, rate: number, size: [number, number], vertex: [number, number] }[];
 
@@ -115,17 +115,47 @@ class InfiniteScrollingPhotos {
       }
     });
 
+    this.pipeline = pipeline;
+  }
+
+  draw() {
+    const { device, pipeline, gridLayout, gap, aspect } = this;
+
+    if (device === undefined || pipeline === undefined) {
+      throw new Error('WebGPU device or pipeline not found');
+    }
+
+    // const count = gridLayout[0] * gridLayout[1];
+    const count = 2;
+
+
+    const [w, h] = this.photos[0].vertex;
+    
+    // 通过图片大小构建顶点数据
+    const vertexArray = new Float32Array(6 * 3)
+    vertexArray.set([-(w / 2), -(h / 2), -1.0], 0 * 3)
+    vertexArray.set([+(w / 2), -(h / 2), -1.0], 1 * 3)
+    vertexArray.set([+(w / 2), +(h / 2), -1.0], 2 * 3)
+
+    vertexArray.set([-(w / 2), -(h / 2), -1.0], 3 * 3)
+    vertexArray.set([+(w / 2), +(h / 2), -1.0], 4 * 3)
+    vertexArray.set([-(w / 2), +(h / 2), -1.0], 5 * 3)
+    
+    const mvpArray = new Float32Array(count * 4 * 4)
+    
+    
     const vertexBuffer = device.createBuffer({
-      size: 6 * 3 * 4,
+      size: vertexArray.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
+    // create a 4x4xNUM STORAGE buffer to store matrix
     const mvpBuffer = device.createBuffer({
-      size: 16 * 4,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 4 * 4 * 4 * count, // 4 x 4 x float32 x count
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const uniformGroup = device.createBindGroup({
+    const group = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         {
@@ -135,38 +165,26 @@ class InfiniteScrollingPhotos {
       ]
     })
 
-    this.pipeline = pipeline;
-    this.vertexData = vertexBuffer;
-    this.mvpData = mvpBuffer;
-    this.uniformGroup = uniformGroup;
-  }
+    // 通过渲染数量构建对应的矩阵数据
+    const photoArray = [];
+    photoArray.push([-w, 0.0, 0.0])
+    photoArray.push([+w, 0.0, 0.0])
 
-  draw() {
-    const { device, pipeline, vertexData, mvpData, uniformGroup } = this;
-
-    if (
-      device === undefined ||
-      pipeline === undefined ||
-      vertexData === undefined ||
-      mvpData === undefined ||
-      uniformGroup === undefined
-    ) {
-      throw new Error('WebGPU device or pipeline or vertexData or mvpData or uniformGroup not found');
+    for (let i = 0; i < photoArray.length; i++) {
+      const mvpMatrix = getMvpMatrix(aspect, photoArray[i])
+      mvpArray.set(mvpMatrix, i * 16)
     }
 
-    const mvpMatrix = getMvpMatrix(this.aspect)
-    const vertexArray = new Float32Array([
-      -1.0, -1.0, -4.0,
-      +1.0, -1.0, -4.0,
-      +1.0, +1.0, -4.0,
-    
-      -1.0, -1.0, -4.0,
-      +1.0, +1.0, -4.0,
-      -1.0, +1.0, -4.0,
-    ])
+    // for (let col = 0; col < gridLayout[0]; col++) {
+    //   for (let row = 0; row < gridLayout[1]; row++) {
+    //     const position = [0, 0, 0];
+    //     position[0] = col * (w + gap);
+    //     position[1] = row * (h + gap);
+    //   }
+    // }
 
-    device.queue.writeBuffer(mvpData, 0, mvpMatrix)
-    device.queue.writeBuffer(vertexData, 0, vertexArray)
+    device.queue.writeBuffer(vertexBuffer, 0, vertexArray)
+    device.queue.writeBuffer(mvpBuffer, 0, mvpArray)
 
     const commandEncoder = device.createCommandEncoder();
     const renderPass = commandEncoder.beginRenderPass({
@@ -179,9 +197,9 @@ class InfiniteScrollingPhotos {
     });
 
     renderPass.setPipeline(pipeline);
-    renderPass.setVertexBuffer(0, vertexData);
-    renderPass.setBindGroup(0, uniformGroup)
-    renderPass.draw(vertexArray.length / 3);
+    renderPass.setVertexBuffer(0, vertexBuffer);
+    renderPass.setBindGroup(0, group)
+    renderPass.draw(vertexArray.length / 3, count);
     renderPass.end();
     device.queue.submit([commandEncoder.finish()]);
   }
@@ -244,13 +262,12 @@ class InfiniteScrollingPhotos {
   // }
 
   calcPhotoRenderSize() {
-    this.vertexGap = [this.gap / this.cw, this.gap / this.ch];
     if (this.photos.length > 0) {
       const colW = this.cw / (this.col + 1);
       this.photos.forEach(photo => {
         const colH = colW / photo.rate;
         photo.size = [colW, colH]
-        photo.vertex = [colW / this.cw * 2, colH / this.ch * 2]
+        photo.vertex = [colW / this.cw, colH / this.ch]
       });
       console.log(this.photos[0].vertex)
     }

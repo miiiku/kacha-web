@@ -18,7 +18,7 @@ function getMvpMatrix(
   
   
   const projectionMatrix = mat4.create();
-  mat4.perspective(projectionMatrix, Math.PI / 4, aspect, 0.1, 1000);
+  mat4.perspective(projectionMatrix, Math.PI / 4, aspect, 0, 1000);
 
   const mvpMatrix = mat4.create();
   mat4.multiply(mvpMatrix, projectionMatrix, modelViewMatrix);

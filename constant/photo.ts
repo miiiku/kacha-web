@@ -16,11 +16,14 @@ const fragmentData = new Float32Array([
 const vertexCount = vertexData.length / 3;
 
 const wgslShader = /* wgsl */`
-  @group(0) @binding(0) var<uniform> mvpMatrix : mat4x4<f32>;
+  @group(0) @binding(0) var<storage, read> mvpMatrix : array<mat4x4<f32>>;
 
   @vertex
-  fn vertex_main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
-    return mvpMatrix * vec4<f32>(pos, 1.0);
+  fn vertex_main(
+    @builtin(instance_index) instance_index: u32,
+    @location(0) pos: vec3<f32>
+  ) -> @builtin(position) vec4<f32> {
+    return mvpMatrix[instance_index] * vec4<f32>(pos, 1.0);
   }
 
   // @group(0) @binding(0) var<uniform> color: vec4<f32>;
