@@ -26,7 +26,7 @@ class InfiniteScrollingPhotos {
     this.aspect = this.cw / this.ch;
     this.gap = 0.02;
     this.col = 4;
-    this.gridLayout = [6, 4];
+    this.gridLayout = [6, 6];
     this.photos = [];
     
     this.resize();
@@ -125,21 +125,23 @@ class InfiniteScrollingPhotos {
       throw new Error('WebGPU device or pipeline not found');
     }
 
-    // const count = gridLayout[0] * gridLayout[1];
-    const count = 2;
+    const [ col, row ] = gridLayout;
 
+    const count = col * row;
 
-    const [w, h] = this.photos[0].vertex;
+    let [w, h] = this.photos[0].vertex;
+    w = 0.2
+    h = 0.2
     
     // 通过图片大小构建顶点数据
     const vertexArray = new Float32Array(6 * 3)
-    vertexArray.set([-(w / 2), -(h / 2), -1.0], 0 * 3)
-    vertexArray.set([+(w / 2), -(h / 2), -1.0], 1 * 3)
-    vertexArray.set([+(w / 2), +(h / 2), -1.0], 2 * 3)
+    vertexArray.set([-(w / 2), -(h / 2), -2.0], 0 * 3)
+    vertexArray.set([+(w / 2), -(h / 2), -2.0], 1 * 3)
+    vertexArray.set([+(w / 2), +(h / 2), -2.0], 2 * 3)
 
-    vertexArray.set([-(w / 2), -(h / 2), -1.0], 3 * 3)
-    vertexArray.set([+(w / 2), +(h / 2), -1.0], 4 * 3)
-    vertexArray.set([-(w / 2), +(h / 2), -1.0], 5 * 3)
+    vertexArray.set([-(w / 2), -(h / 2), -2.0], 3 * 3)
+    vertexArray.set([+(w / 2), +(h / 2), -2.0], 4 * 3)
+    vertexArray.set([-(w / 2), +(h / 2), -2.0], 5 * 3)
     
     const mvpArray = new Float32Array(count * 4 * 4)
     
@@ -149,7 +151,7 @@ class InfiniteScrollingPhotos {
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    // create a 4x4xNUM STORAGE buffer to store matrix
+    // create a 4 x 4 x count STORAGE buffer to store matrix
     const mvpBuffer = device.createBuffer({
       size: 4 * 4 * 4 * count, // 4 x 4 x float32 x count
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -165,23 +167,19 @@ class InfiniteScrollingPhotos {
       ]
     })
 
-    // 通过渲染数量构建对应的矩阵数据
-    const photoArray = [];
-    photoArray.push([-w, 0.0, 0.0])
-    photoArray.push([+w, 0.0, 0.0])
+    const transformData = getGridLayout(col, row, w, h, gap)
+    let num = 0;
 
-    for (let i = 0; i < photoArray.length; i++) {
-      const mvpMatrix = getMvpMatrix(aspect, photoArray[i])
-      mvpArray.set(mvpMatrix, i * 16)
+    console.log(transformData)
+
+    for (let c = 0; c < col; c++) {
+      for (let r = 0; r < row; r++) {
+        const [x, y, z] = transformData[c][r]
+        const mvpMatrix = getMvpMatrix(aspect, [x, y, z])
+        mvpArray.set(mvpMatrix, num * 16)
+        num++;
+      }
     }
-
-    // for (let col = 0; col < gridLayout[0]; col++) {
-    //   for (let row = 0; row < gridLayout[1]; row++) {
-    //     const position = [0, 0, 0];
-    //     position[0] = col * (w + gap);
-    //     position[1] = row * (h + gap);
-    //   }
-    // }
 
     device.queue.writeBuffer(vertexBuffer, 0, vertexArray)
     device.queue.writeBuffer(mvpBuffer, 0, mvpArray)
