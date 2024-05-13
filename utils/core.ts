@@ -26,12 +26,15 @@ class InfiniteScrollingPhotos {
     this.aspect = this.cw / this.ch;
     this.gap = 0.02;
     this.col = 4;
-    this.gridLayout = [6, 6];
+    this.gridLayout = [6, 4];
+    this.gridLayoutData = [];
     this.photos = [];
+
+    this.isMove = false;
+    this.isZoom = false;
     
     this.resize();
-
-    window.addEventListener('resize', () => this.resize());
+    this.bindEvents();
   }
 
   canvas: HTMLCanvasElement;
@@ -41,9 +44,12 @@ class InfiniteScrollingPhotos {
   device: GPUDevice | undefined;
   textureFormat: GPUTextureFormat | undefined;
   pipeline: GPURenderPipeline | undefined;
-  vertexData: GPUBuffer | undefined;
-  mvpData: GPUBuffer | undefined;
+  vertexBuffer: GPUBuffer | undefined;
+  mvpBuffer: GPUBuffer | undefined;
   group: GPUBindGroup | undefined;
+
+  vertexArray: Float32Array | undefined;
+  mvpArray: Float32Array | undefined;
 
   cw: number;
   ch: number;
@@ -51,12 +57,16 @@ class InfiniteScrollingPhotos {
   gap: number;
   col: number;
   gridLayout: [number, number]; // [col, row]
-
+  gridLayoutData: LayoutData;
   photos: { img: ImageBitmap, rate: number, size: [number, number], vertex: [number, number] }[];
+
+  isMove: boolean;
+  isZoom: boolean;
 
   async run() {
     await this.initGPU();
     await this.initPipeline();
+    this.transformVertex(0, 0);
     this.draw();
   }
 
@@ -83,7 +93,7 @@ class InfiniteScrollingPhotos {
   }
 
   async initPipeline() {
-    const { device, textureFormat } = this;
+    const { device, textureFormat, gridLayout, gap } = this;
 
     if (device === undefined || textureFormat === undefined) {
       throw new Error('WebGPU device or texture format not found');
@@ -114,24 +124,12 @@ class InfiniteScrollingPhotos {
         topology: 'triangle-list',
       }
     });
-
-    this.pipeline = pipeline;
-  }
-
-  draw() {
-    const { device, pipeline, gridLayout, gap, aspect } = this;
-
-    if (device === undefined || pipeline === undefined) {
-      throw new Error('WebGPU device or pipeline not found');
-    }
-
-    const [ col, row ] = gridLayout;
-
+    
+    const [col, row] = gridLayout;
+    const [w, h] = this.photos[0].vertex;
     const count = col * row;
+    const gridLayoutData = getGridLayout(col, row, w, h, gap)
 
-    let [w, h] = this.photos[0].vertex;
-    w = 0.2
-    h = 0.2
     
     // 通过图片大小构建顶点数据
     const vertexArray = new Float32Array(6 * 3)
@@ -144,7 +142,6 @@ class InfiniteScrollingPhotos {
     vertexArray.set([-(w / 2), +(h / 2), -2.0], 5 * 3)
     
     const mvpArray = new Float32Array(count * 4 * 4)
-    
     
     const vertexBuffer = device.createBuffer({
       size: vertexArray.byteLength,
@@ -165,23 +162,60 @@ class InfiniteScrollingPhotos {
           resource: { buffer: mvpBuffer }
         }
       ]
-    })
+    });
 
-    const transformData = getGridLayout(col, row, w, h, gap)
+    device.queue.writeBuffer(vertexBuffer, 0, vertexArray)
+    
+    this.pipeline = pipeline;
+    this.vertexArray = vertexArray;
+    this.mvpArray = mvpArray;
+    this.vertexBuffer = vertexBuffer;
+    this.mvpBuffer = mvpBuffer;
+    this.group = group;
+    this.gridLayoutData = gridLayoutData;
+  }
+
+  transformVertex(offsetX: number, offsetY: number) {
+    const { aspect, gridLayout, gridLayoutData, mvpArray } = this;
+
+    if (mvpArray === undefined) {
+      throw new Error('WebGPU mvpArray not found');
+    }
+
+    const [col, row] = gridLayout;
+
     let num = 0;
-
-    console.log(transformData)
 
     for (let c = 0; c < col; c++) {
       for (let r = 0; r < row; r++) {
-        const [x, y, z] = transformData[c][r]
-        const mvpMatrix = getMvpMatrix(aspect, [x, y, z])
+        const [x, y, z] = gridLayoutData[c][r]
+        const transformX = x + offsetX
+        const transformY = y - offsetY
+        const mvpMatrix = getMvpMatrix(aspect, [transformX, transformY, z])
+        gridLayoutData[c][r] = [transformX, transformY, z]
         mvpArray.set(mvpMatrix, num * 16)
         num++;
       }
     }
+  }
 
-    device.queue.writeBuffer(vertexBuffer, 0, vertexArray)
+  draw() {
+    const { device, pipeline, vertexArray, mvpArray, vertexBuffer, mvpBuffer, group, gridLayout } = this;
+
+    if (
+      device === undefined ||
+      pipeline === undefined ||
+      vertexArray === undefined ||
+      mvpArray === undefined ||
+      vertexBuffer === undefined ||
+      mvpBuffer === undefined ||
+      group === undefined
+    )
+      throw new Error('WebGPU device or pipeline not found');
+
+    const [col, row] = gridLayout;
+    const count = col * row;
+
     device.queue.writeBuffer(mvpBuffer, 0, mvpArray)
 
     const commandEncoder = device.createCommandEncoder();
@@ -202,6 +236,23 @@ class InfiniteScrollingPhotos {
     device.queue.submit([commandEncoder.finish()]);
   }
 
+  bindEvents() {
+    const { canvas, cw, ch } = this;
+    canvas.addEventListener('mousedown', () => {
+      this.isMove = true;
+    });
+    canvas.addEventListener('mousemove', (evt: MouseEvent) => {
+      if (!this.isMove) return;
+      const { movementX, movementY } = evt;
+      this.transformVertex(movementX / cw * 2, movementY / ch * 2)
+      this.draw()
+    });
+    canvas.addEventListener('mouseup', () => {
+      this.isMove = false;
+    });
+    window.addEventListener('resize', () => this.resize());
+  }
+
   resize() {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -212,52 +263,10 @@ class InfiniteScrollingPhotos {
     this.aspect = vw / vh;
     this.calcPhotoRenderSize();
     if (this.device) {
+      this.transformVertex(0, 0);
       this.draw();
     }
   }
-  
-  // calcVertexData() {
-  //   const { device, photos, vertexGap } = this;
-
-  //   if (device === undefined) {
-  //     return console.log('WebGPU device not found');
-  //   }
-
-  //   if (photos.length === 0) {
-  //     return console.log('No photos to render');
-  //   }
-
-  //   const vertexArray = [];
-
-  //   let startX = -1.0 + vertexGap[0];
-  //   let startY = +1.0 - vertexGap[1];
-
-  //   for (let i = 0; i < photos.length; i++) {
-  //     const { vertex: [x, y] } = photos[i];
-  //     vertexArray.push(...[startX + 0, startY + 0, 0.0])
-  //     vertexArray.push(...[startX + 0, startY - y, 0.0])
-  //     vertexArray.push(...[startX + x, startY - y, 0.0])
-  
-  //     vertexArray.push(...[startX + x, startY + 0, 0.0])
-  //     vertexArray.push(...[startX + x, startY - y, 0.0])
-  //     vertexArray.push(...[startX + 0, startY + 0, 0.0])
-  //     if (i === 0) {
-  //       console.log(vertexArray)
-  //     }
-  //     startX += x + vertexGap[0];
-  //   }
-
-  //   const buffer = device.createBuffer({
-  //     size: vertexArray.length * 4,
-  //     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  //   });
-
-  //   device.queue.writeBuffer(buffer, 0, new Float32Array(vertexArray));
-
-  //   this.vertexData = { buffer, count: vertexArray.length / 3 };
-      
-  //   this.draw();
-  // }
 
   calcPhotoRenderSize() {
     if (this.photos.length > 0) {

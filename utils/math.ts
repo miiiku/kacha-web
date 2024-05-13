@@ -26,7 +26,8 @@ function getMvpMatrix(
   return mvpMatrix as Float32Array
 }
 
-function getGridLayout(col: number, row: number, w: number, h: number, gap: number) {
+// 先从中间往左右两边交替排列，再从中间往上下交替排列
+function getGridLayout(col: number, row: number, w: number, h: number, gap: number): LayoutData {
   const gridLayout = new Array(col) // 用于打印输出布局样式
   const transformData = new Array(col) // 用于存储每个格子的矩阵变换值
 
@@ -87,7 +88,6 @@ function getGridLayout(col: number, row: number, w: number, h: number, gap: numb
         appendRowIndex = row / 2 + (rowIndex - 1) / 2
         colRowTransform[appendRowIndex] = [rowArea[isLeft? 0 : 1], colArea[1], 0.0]
       }
-      console.log(`${appendColIndex}-${appendRowIndex}`)
       colRowText[appendRowIndex] = `${colIndex}-${rowIndex}`
     }
     transformData[appendColIndex] = colRowTransform
