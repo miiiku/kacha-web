@@ -116,63 +116,96 @@ function getPhotoCenterVertex(w: number, h: number) : Array<number> {
   return vertex
 }
 
-function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) : Float32Array {
-  const gridLayoutMatrix = [] // 用于存储每个格子的矩阵变换值信息
-  const gridLayoutVertex = new Float32Array(6 * 3 * photos.length)  // 用于存储每个格子的中心顶点位置信息
+function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } {
+  let minColIndex = 0
+  let nextTop = false
+  let nextBottom = false
 
-  const fixedWidth = photos[0].vertex[0] // 固定宽度
+  let minHeight = colInfo[0][2]
 
-  const horizontalArea = [+(gap / 2), -(gap / 2)]  // [left x, right x]
-  const verticalArea = [] // [top y, bottom y][]
-
-  for (let i = 0; i < col; i++) {
-    verticalArea.push([+(gap / 2), -(gap / 2)]) 
+  for (let i = 0; i < colInfo.length; i++) {
+    const [top, bottom, totalHeight] = colInfo[i]
+    if (totalHeight < minHeight) {
+      minHeight = totalHeight
+      minColIndex = i
+      if (top - bottom >= 0) {
+        nextTop = false
+        nextBottom = true
+      } else {
+        nextTop = true
+        nextBottom = false
+      }
+    }
   }
+  return { minColIndex, nextTop, nextBottom }
+}
 
+/**
+ * 先根据列数画往两边出一条垂直居中行
+ * 在以瀑布流计算方式向两边上下追加排列
+ * @param photos 图片列表
+ * @param col 总列数
+ * @param gap 图片之间的间距
+ * @returns 
+ */
+function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
+  const gridLayoutMatrix: [x: number, y: number, z:number][][] = new Array(col) // 用于存储每个格子的矩阵变换值信息
+  const gridLayoutVertex: Float32Array = new Float32Array(6 * 3 * photos.length)  // 用于存储每个格子的中心顶点位置信息
 
-  // 计算展示列数
-  let currentColIndex = 0;
-  let currentRowIndex = 0;
-  let forCol = 0;
+  const isOddCol = col % 2 === 1 // 是否为奇数列
+  const rowInfo: [leftX: number, rightX: number] = [0, 0]
+  const colInfo: [topY: number, bottomY: number, totalHeight: number, x: number][] = []
 
   for (let i = 0; i < photos.length; i++) {
-    const [w, h] = photos[i].vertex;
-    
+    const [w, h] = photos[i].vertex
+
     // 计算当前格子的中心点位置
     gridLayoutVertex.set(getPhotoCenterVertex(w, h), i * 6 * 3)
 
-    // 左
-    if (currentColIndex % 2 === 0) {}
-
-    // 右
-    if (currentColIndex % 2 === 1) {}
-
-    // 上
-    if (currentRowIndex % 2 === 0) {}
-
-    // 下
-    if (currentRowIndex % 2 === 1) {}
-    
-    // 左上
-    if (currentColIndex % 2 === 0 && currentRowIndex % 2 === 0) {
-      
+    // 构建第一行
+    if (i < col) {
+      if (i === 0 && isOddCol) {
+        const midIndex = Math.floor(col / 2)
+        rowInfo[0] = -(w / 2)
+        rowInfo[1] = +(w / 2)
+        colInfo[midIndex] = [+(h / 2), -(h / 2), h, 0]
+        gridLayoutMatrix[midIndex][0] = [0.0, 0.0, 0.0]
+        break
+      }
+      // 左边
+      if (i % 2 === 0) {
+        const colIndex = Math.floor(col / 2) - 1 - i / 2
+        rowInfo[0] -= w + gap
+        colInfo[colIndex] = [+(h / 2), -(h / 2), h, rowInfo[0]]
+        gridLayoutMatrix[colIndex][0] = [rowInfo[0], 0.0, 0.0]
+      }
+      // 右边
+      if (i % 2 === 1) {
+        const colIndex = Math.floor(col / 2) + (i - 1) / 2
+        rowInfo[1] += w + gap
+        colInfo[colIndex] = [+(h / 2), -(h / 2), h, rowInfo[1]]
+        gridLayoutMatrix[colIndex][0] = [rowInfo[0], 0.0, 0.0]
+      }
+      break
     }
 
-    // 右上
-    if (currentColIndex % 2 === 1 && currentRowIndex % 2 === 0) {
-      
+    // 开始瀑布流计算
+    const { minColIndex, nextTop, nextBottom } = getWaterfallFlowNext(colInfo)
+    // 往上追加
+    if (nextTop) {
+      colInfo[minColIndex][0] += h + gap // 更新上部分的高度范围
+      colInfo[minColIndex][2] += h + gap // 更新高度总和
+      gridLayoutMatrix[minColIndex].unshift([colInfo[minColIndex][3], colInfo[minColIndex][0], 0.0])
     }
-
-    // 左下
-    if (currentColIndex % 2 === 0 && currentRowIndex % 2 === 1) {
-      
+    // 往下追加
+    if (nextBottom) {
+      colInfo[minColIndex][1] -= h + gap // 更新下部分的高度范围
+      colInfo[minColIndex][2] += h + gap // 更新高度总和
+      gridLayoutMatrix[minColIndex].push([colInfo[minColIndex][3], colInfo[minColIndex][1], 0.0])
     }
-
-    // 右下
-    if (currentColIndex % 2 === 1 && currentRowIndex % 2 === 1) {}
   }
 
-  return gridLayoutVertex
+  return { gridLayoutVertex, gridLayoutMatrix }
 }
 
-export { getMvpMatrix, getGridLayout }
+export { getMvpMatrix, getGridLayout, getGridLayoutVertex }

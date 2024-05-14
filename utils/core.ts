@@ -1,5 +1,5 @@
 import { wgslShader } from '@/constant/photo';
-import { getMvpMatrix } from '@/utils/math';
+import { getMvpMatrix, getGridLayout, getGridLayoutVertex } from '@/utils/math';
 
 class InfiniteScrollingPhotos {
   constructor(selectors: string) {
