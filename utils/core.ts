@@ -56,9 +56,9 @@ class InfiniteScrollingPhotos {
   aspect: number;
   gap: number;
   col: number;
-  gridLayout: [number, number]; // [col, row]
-  gridLayoutData: LayoutData;
-  photos: { img: ImageBitmap, rate: number, size: [number, number], vertex: [number, number] }[];
+  gridLayout: Array2L<number>; // [col, row]
+  gridLayoutData: ISP_LayoutData;
+  photos: ISP_Photos;
 
   isMove: boolean;
   isZoom: boolean;
@@ -66,6 +66,7 @@ class InfiniteScrollingPhotos {
   async run() {
     await this.initGPU();
     await this.initPipeline();
+    this.initVertexBuffer();
     this.transformVertex(0, 0);
     this.draw();
   }
@@ -173,6 +174,31 @@ class InfiniteScrollingPhotos {
     this.mvpBuffer = mvpBuffer;
     this.group = group;
     this.gridLayoutData = gridLayoutData;
+  }
+
+  initVertexBuffer() {
+    const { device, gridLayout, gap } = this;
+
+    if (device === undefined) {
+      throw new Error('WebGPU device not found');
+    }
+    // 通过图片数量和大小构建每个图片对应的顶点数据
+    const vertexArray = new Float32Array(6 * 3 * this.photos.length)
+
+    for (let photo of this.photos) {
+      const [w, h] = photo.vertex;
+      // 第一个三角面
+      vertexArray.set([-(w / 2), -(h / 2), -2.0], 0 * 3)
+      vertexArray.set([+(w / 2), -(h / 2), -2.0], 1 * 3)
+      vertexArray.set([+(w / 2), +(h / 2), -2.0], 2 * 3)
+      // 第二个三角面
+      vertexArray.set([-(w / 2), -(h / 2), -2.0], 3 * 3)
+      vertexArray.set([+(w / 2), +(h / 2), -2.0], 4 * 3)
+      vertexArray.set([-(w / 2), +(h / 2), -2.0], 5 * 3)
+    }
+    
+    // const mvpArray = new Float32Array(count * 4 * 4)
+    
   }
 
   transformVertex(offsetX: number, offsetY: number) {
