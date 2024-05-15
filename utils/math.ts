@@ -76,7 +76,7 @@ function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { m
  */
 function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息
-  const gridLayoutVertex: Float32Array = new Float32Array(6 * 3 * photos.length)  // 用于存储每个格子的中心顶点位置信息
+  const gridLayoutVertex: Float32Array = new Float32Array(6 * 3 * 4)  // 用于存储每个格子的中心顶点位置信息
 
   const isOddCol = col % 2 === 1 // 是否为奇数列
   const rowInfo: [leftX: number, rightX: number] = [0, 0]
@@ -89,8 +89,6 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
     let [w, h] = photos[i].vertex
     // 计算当前格子的中心点位置
     gridLayoutVertex.set(getPhotoCenterVertex(w, h), i * 6 * 3)
-
-    console.log("vertex y:", gridLayoutVertex[i * 6 * 3 + 1])
     // 中心点
     if (i === 0 && isOddCol) {
       const midIndex = Math.floor(col / 2)
@@ -137,6 +135,8 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   //     gridLayoutMatrix[minColIndex].push([colInfo[minColIndex][3], colInfo[minColIndex][1], 0.0])
   //   }
   // }
+
+  console.log(gridLayoutVertex)
 
   return { gridLayoutVertex, gridLayoutMatrix }
 }

@@ -1,4 +1,4 @@
-import { wgslShader } from '@/constant/photo';
+import { wgslShader, vertexData } from '@/constant/photo';
 import { getMvpMatrix, getGridLayoutVertex } from '@/utils/math';
 
 class InfiniteScrollingPhotos {
@@ -233,7 +233,7 @@ class InfiniteScrollingPhotos {
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer);
     renderPass.setBindGroup(0, group)
-    renderPass.draw(gridLayoutVertex.length / 3, photos.length);
+    renderPass.draw(gridLayoutVertex.length / 3);
     renderPass.end();
     device.queue.submit([commandEncoder.finish()]);
   }
