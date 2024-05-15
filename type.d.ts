@@ -16,7 +16,13 @@ interface ISP_Photo {
 }
 
 interface ISP_Buffer {
-  vertexBuffer: GPUBuffer;
-  mvpBuffer: GPUBuffer;
-  group: GPUBindGroup;
+  vertexBuffer?: GPUBuffer;
+  mvpBuffer?: GPUBuffer;
+  group?: GPUBindGroup;
+}
+
+interface ISP_Locations {
+  gridLayoutVertex?: Float32Array,
+  gridLayoutMatrix?: ISP_LayoutData,
+  gridLayoutTransform?: Float32Array,
 }

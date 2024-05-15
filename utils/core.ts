@@ -1,5 +1,5 @@
 import { wgslShader } from '@/constant/photo';
-import { getMvpMatrix, getGridLayout, getGridLayoutVertex } from '@/utils/math';
+import { getMvpMatrix, getGridLayoutVertex } from '@/utils/math';
 
 class InfiniteScrollingPhotos {
   constructor(selectors: string) {
@@ -30,6 +30,9 @@ class InfiniteScrollingPhotos {
     this.gridLayoutData = [];
     this.photos = [];
 
+    this.buffers = {}
+    this.locations = {}
+
     this.isMove = false;
     this.isZoom = false;
     
@@ -47,6 +50,8 @@ class InfiniteScrollingPhotos {
   vertexBuffer: GPUBuffer | undefined;
   mvpBuffer: GPUBuffer | undefined;
   group: GPUBindGroup | undefined;
+  buffers: ISP_Buffer;
+  locations: ISP_Locations;
 
   vertexArray: Float32Array | undefined;
   mvpArray: Float32Array | undefined;
@@ -67,7 +72,7 @@ class InfiniteScrollingPhotos {
     await this.initGPU();
     await this.initPipeline();
     this.initVertexBuffer();
-    this.transformVertex(0, 0);
+    this.transformMatrix(0, 0);
     this.draw();
   }
 
@@ -94,7 +99,7 @@ class InfiniteScrollingPhotos {
   }
 
   async initPipeline() {
-    const { device, textureFormat, gridLayout, gap } = this;
+    const { device, textureFormat } = this;
 
     if (device === undefined || textureFormat === undefined) {
       throw new Error('WebGPU device or texture format not found');
@@ -126,32 +131,29 @@ class InfiniteScrollingPhotos {
       }
     });
     
-    const [col, row] = gridLayout;
-    const [w, h] = this.photos[0].vertex;
-    const count = col * row;
-    const gridLayoutData = getGridLayout(col, row, w, h, gap)
+    this.pipeline = pipeline;
+  }
 
-    
-    // 通过图片大小构建顶点数据
-    const vertexArray = new Float32Array(6 * 3)
-    vertexArray.set([-(w / 2), -(h / 2), -2.0], 0 * 3)
-    vertexArray.set([+(w / 2), -(h / 2), -2.0], 1 * 3)
-    vertexArray.set([+(w / 2), +(h / 2), -2.0], 2 * 3)
+  initVertexBuffer() {
+    const { device, pipeline, photos, col, gap } = this;
 
-    vertexArray.set([-(w / 2), -(h / 2), -2.0], 3 * 3)
-    vertexArray.set([+(w / 2), +(h / 2), -2.0], 4 * 3)
-    vertexArray.set([-(w / 2), +(h / 2), -2.0], 5 * 3)
-    
-    const mvpArray = new Float32Array(count * 4 * 4)
-    
+    if (device === undefined) {
+      throw new Error('WebGPU device not found');
+    }
+
+    if (pipeline === undefined) {
+      throw new Error('WebGPU pipeline not found');
+    }
+
+    const { gridLayoutMatrix, gridLayoutVertex } = getGridLayoutVertex(photos, col, gap)
+
     const vertexBuffer = device.createBuffer({
-      size: vertexArray.byteLength,
+      size: gridLayoutVertex.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    // create a 4 x 4 x count STORAGE buffer to store matrix
     const mvpBuffer = device.createBuffer({
-      size: 4 * 4 * 4 * count, // 4 x 4 x float32 x count
+      size: 4 * 4 * 4 * photos.length, // 4 x 4 x float32 x photos.length
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
@@ -165,84 +167,58 @@ class InfiniteScrollingPhotos {
       ]
     });
 
-    device.queue.writeBuffer(vertexBuffer, 0, vertexArray)
-    
-    this.pipeline = pipeline;
-    this.vertexArray = vertexArray;
-    this.mvpArray = mvpArray;
-    this.vertexBuffer = vertexBuffer;
-    this.mvpBuffer = mvpBuffer;
-    this.group = group;
-    this.gridLayoutData = gridLayoutData;
+    const gridLayoutTransform = new Float32Array(photos.length * 16)
+
+    device.queue.writeBuffer(vertexBuffer, 0, gridLayoutVertex)
+
+    this.buffers = { vertexBuffer, mvpBuffer, group }
+    this.locations = { gridLayoutVertex, gridLayoutMatrix, gridLayoutTransform }
   }
 
-  initVertexBuffer() {
-    const { device, gridLayout, gap } = this;
+  transformMatrix(offsetX: number, offsetY: number) {
+    const { aspect, locations } = this
+    const { gridLayoutMatrix, gridLayoutTransform } = locations
 
-    if (device === undefined) {
-      throw new Error('WebGPU device not found');
-    }
-    // 通过图片数量和大小构建每个图片对应的顶点数据
-    const vertexArray = new Float32Array(6 * 3 * this.photos.length)
-
-    for (let photo of this.photos) {
-      const [w, h] = photo.vertex;
-      // 第一个三角面
-      vertexArray.set([-(w / 2), -(h / 2), -2.0], 0 * 3)
-      vertexArray.set([+(w / 2), -(h / 2), -2.0], 1 * 3)
-      vertexArray.set([+(w / 2), +(h / 2), -2.0], 2 * 3)
-      // 第二个三角面
-      vertexArray.set([-(w / 2), -(h / 2), -2.0], 3 * 3)
-      vertexArray.set([+(w / 2), +(h / 2), -2.0], 4 * 3)
-      vertexArray.set([-(w / 2), +(h / 2), -2.0], 5 * 3)
-    }
-    
-    // const mvpArray = new Float32Array(count * 4 * 4)
-    
-  }
-
-  transformVertex(offsetX: number, offsetY: number) {
-    const { aspect, gridLayout, gridLayoutData, mvpArray } = this;
-
-    if (mvpArray === undefined) {
-      throw new Error('WebGPU mvpArray not found');
+    if (gridLayoutMatrix === undefined || gridLayoutTransform === undefined) {
+      throw new Error('WebGPU gridLayoutMatrix or gridLayoutTransform not found');
     }
 
-    const [col, row] = gridLayout;
+    let num = 0
 
-    let num = 0;
-
-    for (let c = 0; c < col; c++) {
-      for (let r = 0; r < row; r++) {
-        const [x, y, z] = gridLayoutData[c][r]
+    for (let col of gridLayoutMatrix) {
+      for (let colItem of col) {
+        const [x, y, z] = colItem
         const transformX = x + offsetX
         const transformY = y - offsetY
         const mvpMatrix = getMvpMatrix(aspect, [transformX, transformY, z])
-        gridLayoutData[c][r] = [transformX, transformY, z]
-        mvpArray.set(mvpMatrix, num * 16)
-        num++;
+        colItem[0] = transformX
+        colItem[1] = transformY
+        colItem[2] = z
+        gridLayoutTransform.set(mvpMatrix, 16 * num)
+        num++
       }
     }
   }
 
   draw() {
-    const { device, pipeline, vertexArray, mvpArray, vertexBuffer, mvpBuffer, group, gridLayout } = this;
+    const { device, pipeline, buffers, locations, photos } = this;
 
-    if (
-      device === undefined ||
-      pipeline === undefined ||
-      vertexArray === undefined ||
-      mvpArray === undefined ||
-      vertexBuffer === undefined ||
-      mvpBuffer === undefined ||
-      group === undefined
-    )
+    if (device === undefined || pipeline === undefined) {
       throw new Error('WebGPU device or pipeline not found');
+    }
 
-    const [col, row] = gridLayout;
-    const count = col * row;
+    const { vertexBuffer, mvpBuffer, group } = buffers;
+    const { gridLayoutVertex, gridLayoutTransform } = locations;
 
-    device.queue.writeBuffer(mvpBuffer, 0, mvpArray)
+    if (mvpBuffer === undefined || vertexBuffer === undefined || group === undefined) {
+      throw new Error('WebGPU buffer or bind group not found');
+    }
+
+    if (gridLayoutVertex === undefined || gridLayoutTransform === undefined) {
+      throw new Error('WebGPU gridLayoutVertex or gridLayoutTransform not found');
+    }
+
+    device.queue.writeBuffer(mvpBuffer, 0, gridLayoutTransform)
 
     const commandEncoder = device.createCommandEncoder();
     const renderPass = commandEncoder.beginRenderPass({
@@ -257,7 +233,7 @@ class InfiniteScrollingPhotos {
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer);
     renderPass.setBindGroup(0, group)
-    renderPass.draw(vertexArray.length / 3, count);
+    renderPass.draw(gridLayoutVertex.length / 3, photos.length);
     renderPass.end();
     device.queue.submit([commandEncoder.finish()]);
   }
@@ -270,7 +246,7 @@ class InfiniteScrollingPhotos {
     canvas.addEventListener('mousemove', (evt: MouseEvent) => {
       if (!this.isMove) return;
       const { movementX, movementY } = evt;
-      this.transformVertex(movementX / cw * 2, movementY / ch * 2)
+      this.transformMatrix(movementX / cw * 2, movementY / ch * 2)
       this.draw()
     });
     canvas.addEventListener('mouseup', () => {
@@ -289,7 +265,7 @@ class InfiniteScrollingPhotos {
     this.aspect = vw / vh;
     this.calcPhotoRenderSize();
     if (this.device) {
-      this.transformVertex(0, 0);
+      this.transformMatrix(0, 0);
       this.draw();
     }
   }
@@ -302,7 +278,6 @@ class InfiniteScrollingPhotos {
         photo.size = [colW, colH]
         photo.vertex = [colW / this.cw, colH / this.ch]
       });
-      console.log(this.photos[0].vertex)
     }
   }
 
