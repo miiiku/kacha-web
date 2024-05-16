@@ -1,4 +1,4 @@
-import { wgslShader, vertexData } from '@/constant/photo';
+import { wgslShader } from '@/constant/photo';
 import { getMvpMatrix, getGridLayoutVertex } from '@/utils/math';
 
 class InfiniteScrollingPhotos {
@@ -177,14 +177,13 @@ class InfiniteScrollingPhotos {
 
   transformMatrix(offsetX: number, offsetY: number) {
     const { aspect, locations } = this
-    const { gridLayoutMatrix, gridLayoutTransform } = locations
+    const { gridLayoutVertex, gridLayoutMatrix, gridLayoutTransform } = locations
 
     if (gridLayoutMatrix === undefined || gridLayoutTransform === undefined) {
       throw new Error('WebGPU gridLayoutMatrix or gridLayoutTransform not found');
     }
 
     let num = 0
-
     for (let col of gridLayoutMatrix) {
       for (let colItem of col) {
         const [x, y, z] = colItem
@@ -198,10 +197,14 @@ class InfiniteScrollingPhotos {
         num++
       }
     }
+
+    console.log(`matrix count: ${gridLayoutTransform.length / 16}`)
+    console.log(`gridLayoutVertex: ${gridLayoutVertex?.length}`)
+    console.log(`gridLayoutTransform: ${gridLayoutTransform.length}`)
   }
 
   draw() {
-    const { device, pipeline, buffers, locations, photos } = this;
+    const { device, pipeline, buffers, locations } = this;
 
     if (device === undefined || pipeline === undefined) {
       throw new Error('WebGPU device or pipeline not found');

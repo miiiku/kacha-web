@@ -16,9 +16,8 @@ function getMvpMatrix(
   // scale
   mat4.scale(modelViewMatrix, modelViewMatrix, vec3.fromValues(scale[0], scale[1], scale[2]))
   
-  
   const projectionMatrix = mat4.create();
-  mat4.perspective(projectionMatrix, Math.PI / 4, aspect, 0, 1000);
+  mat4.perspective(projectionMatrix, Math.PI / 2, aspect, 0, 1000);
 
   const mvpMatrix = mat4.create();
   mat4.multiply(mvpMatrix, projectionMatrix, modelViewMatrix);
@@ -45,38 +44,57 @@ function getPhotoCenterVertex(w: number, h: number) : Array<number> {
 function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } {
   let minColIndex = 0
   let nextTop = false
-  let nextBottom = false
+  let nextBottom = true
 
-  let minHeight = colInfo[0][2]
+  const update = (y1: number, y2: number) => {
+    if (y1 + y2 >= 0) {
+      nextTop = false
+      nextBottom = true
+    } else {
+      nextTop = true
+      nextBottom = false
+    }
+  }
 
-  for (let i = 0; i < colInfo.length; i++) {
+  const [y1, y2, h] = colInfo[0]
+  update(y1, y2)
+
+  let minHeight = h
+  for (let i = 1; i < colInfo.length; i++) {
     const [top, bottom, totalHeight] = colInfo[i]
     if (totalHeight < minHeight) {
       minHeight = totalHeight
       minColIndex = i
-      if (top - bottom >= 0) {
-        nextTop = false
-        nextBottom = true
-      } else {
-        nextTop = true
-        nextBottom = false
-      }
+      update(top, bottom)
     }
   }
+
   return { minColIndex, nextTop, nextBottom }
 }
 
 /**
- * 先根据列数画往两边出一条垂直居中行
- * 在以瀑布流计算方式向两边上下追加排列
+ * 先根据列数画交替往两边出一条垂直居中行，在以瀑布流计算方式向两边上下追加排列
+ * 
+ * 由于图形的计算方式是先中屏幕中心点左右依此交替绘制出多列一行的一条线，然后在根据这一条线做瀑布流布局
+ * 所以他的展示方式跟传入的photos的顺序是完全不一样的。
+ * <<就需要特别注意矩阵变换信息要跟顶点坐标的顺序是一一对应的，这里就需要提前规划好>>
+ * 
+ * 也可以使用不同的group和vertex的方式来实现，这样就不需要考虑矩阵顺序和顶点顺序的问题了。但是这样的话，需要不断切换group和vertex，性能消耗较大
+ * 所以目前做法是规划好统一顺序，在一个group和vertex中绘制所有顶点，然后在shader中有序读取对应的数据绘制。
+ * 
  * @param photos 图片列表
  * @param col 总列数
  * @param gap 图片之间的间距
  * @returns 
  */
 function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
-  const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息
-  const gridLayoutVertex: Float32Array = new Float32Array(6 * 3 * 4)  // 用于存储每个格子的中心顶点位置信息
+  for (let photo of photos) {
+    console.log("for:", photo.vertex[1])
+  }
+
+  const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
+  const gridLayoutVertex: Float32Array = new Float32Array(6 * 3 * photos.length)  // 用于存储每个格子的中心顶点位置信息
+  const gridLayoutCols: number[][] = new Array(col).fill('').map(() => []) // 用于存储每列的所有图像对应下标
 
   const isOddCol = col % 2 === 1 // 是否为奇数列
   const rowInfo: [leftX: number, rightX: number] = [0, 0]
@@ -87,15 +105,13 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   // 初始化所有列
   for (let i = 0; i < col; i++) {
     let [w, h] = photos[i].vertex
-    // 计算当前格子的中心点位置
-    gridLayoutVertex.set(getPhotoCenterVertex(w, h), i * 6 * 3)
     // 中心点
     if (i === 0 && isOddCol) {
       const midIndex = Math.floor(col / 2)
       rowInfo[0] = -(w / 2 + gap / 2)
       rowInfo[1] = +(w / 2 + gap / 2)
       colInfo[midIndex] = [+(h / 2), -(h / 2), h, 0]
-      gridLayoutMatrix[midIndex][0] = [0.0, 0.0, 0.0]
+      gridLayoutMatrix[midIndex][0] = [0.0, 0.0, 0.0, i]
       continue
     }
     // 左边
@@ -103,42 +119,58 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
       const colIndex = Math.floor(col / 2) - 1 - (i / 2 - offsetCol)
       rowInfo[0] -= i === offsetCol * 2 ? w / 2 + gap / 2 : w + gap
       colInfo[colIndex] = [+(h / 2), -(h / 2), h, rowInfo[0]]
-      gridLayoutMatrix[colIndex][0] = [rowInfo[0], 0.0, 0.0]
+      gridLayoutMatrix[colIndex][0] = [rowInfo[0], 0.0, 0.0, i]
     }
     // 右边
     if (i % 2 === 1) {
       const colIndex = Math.floor(col / 2) + (i - 1) / 2 + offsetCol
       rowInfo[1] += i === 1 ? w /2 + gap / 2 : w + gap
       colInfo[colIndex] = [+(h / 2), -(h / 2), h, rowInfo[1]]
-      gridLayoutMatrix[colIndex][0] = [rowInfo[1], 0.0, 0.0]
+      gridLayoutMatrix[colIndex][0] = [rowInfo[1], 0.0, 0.0, i]
     }
   }
 
-  // for (let i = col; i < photos.length; i++) {
-  //   const [w, h] = photos[i].vertex
 
-  //   // 计算当前格子的中心点位置
-  //   gridLayoutVertex.set(getPhotoCenterVertex(w, h), i * 6 * 3)
+  for (let i = col; i < photos.length; i++) {
+    const h = photos[i].vertex[1]
 
-  //   // // 开始瀑布流计算
-  //   const { minColIndex, nextTop, nextBottom } = getWaterfallFlowNext(colInfo)
-  //   // 往上追加
-  //   if (nextTop) {
-  //     colInfo[minColIndex][0] += h + gap // 更新上部分的高度范围
-  //     colInfo[minColIndex][2] += h + gap // 更新高度总和
-  //     gridLayoutMatrix[minColIndex].unshift([colInfo[minColIndex][3], colInfo[minColIndex][0], 0.0])
-  //   }
-  //   // 往下追加
-  //   if (nextBottom) {
-  //     colInfo[minColIndex][1] -= h + gap // 更新下部分的高度范围
-  //     colInfo[minColIndex][2] += h + gap // 更新高度总和
-  //     gridLayoutMatrix[minColIndex].push([colInfo[minColIndex][3], colInfo[minColIndex][1], 0.0])
-  //   }
-  // }
+    if (i === 10) debugger
 
-  console.log(gridLayoutVertex)
+    // 开始瀑布流计算
+    const { minColIndex, nextTop, nextBottom } = getWaterfallFlowNext(colInfo)
+
+    const currentOffsetY = h / 2 + gap // 当前列下部分当前顶点的偏移量
+
+    // 往上追加
+    if (nextTop) {
+      colInfo[minColIndex][0] += currentOffsetY // 更新上部分的偏移范围
+      colInfo[minColIndex][2] += h + gap // 更新高度总和
+      gridLayoutMatrix[minColIndex].unshift([colInfo[minColIndex][3], colInfo[minColIndex][0], 0.0, i])
+    }
+
+    // 往下追加
+    if (nextBottom) {
+      colInfo[minColIndex][1] -= currentOffsetY // 更新下部分的偏移范围
+      colInfo[minColIndex][2] += h + gap // 更新高度总和
+      gridLayoutMatrix[minColIndex].push([colInfo[minColIndex][3], colInfo[minColIndex][1], 0.0, i])
+    }
+  }
+
+  // 按布局顺序填充顶点数据
+  let count = 0
+  for (let col of gridLayoutMatrix) {
+    for (let colItem of col) {
+      const [,,, index] = colItem
+      const [w, h] = photos[index].vertex
+      // 计算当前图片的中心点位置
+      gridLayoutVertex.set(getPhotoCenterVertex(w, h), count * 6 * 3)
+      count++
+    }
+  }
+
+  console.log(gridLayoutMatrix)
 
   return { gridLayoutVertex, gridLayoutMatrix }
 }
 
-export { getMvpMatrix, getGridLayout, getGridLayoutVertex }
+export { getMvpMatrix, getGridLayoutVertex }

@@ -2,9 +2,9 @@ type Array2L<T> = [T, T]
 
 type Array3L<T> = [T, T, T]
 
-type Array3D3L<T> = [T, T, T][][]
+type Array4D3L<T> = [T, T, T, T][][]
 
-type ISP_LayoutData = Array3D3L<number>
+type ISP_LayoutData = Array4D3L<number>
 
 type ISP_Photos = ISP_Photo[]
 
