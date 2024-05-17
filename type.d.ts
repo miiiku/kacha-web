@@ -18,7 +18,8 @@ interface ISP_Photo {
 interface ISP_Buffer {
   vertexBuffer?: GPUBuffer;
   mvpBuffer?: GPUBuffer;
-  group?: GPUBindGroup;
+  mvpGroup?: GPUBindGroup;
+  textureGroup?: GPUBindGroup;
 }
 
 interface ISP_Locations {

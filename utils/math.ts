@@ -16,6 +16,8 @@ function getMvpMatrix(
   // scale
   mat4.scale(modelViewMatrix, modelViewMatrix, vec3.fromValues(scale[0], scale[1], scale[2]))
   
+  // return modelViewMatrix as Float32Array
+
   const projectionMatrix = mat4.create();
   mat4.perspective(projectionMatrix, Math.PI / 2, aspect, 0, 1000);
 
@@ -27,16 +29,16 @@ function getMvpMatrix(
 
 function getPhotoCenterVertex(w: number, h: number) : Array<number> {
   const vertex = []
-  
+  // x y z | u v
   // 第一个三角面
-  vertex.push(-(w / 2), -(h / 2), -2.0)
-  vertex.push(+(w / 2), -(h / 2), -2.0)
-  vertex.push(+(w / 2), +(h / 2), -2.0)
+  vertex.push(-(w / 2), -(h / 2), -0.3,  0.0, 1.0)
+  vertex.push(+(w / 2), -(h / 2), -0.3,  1.0, 1.0)
+  vertex.push(+(w / 2), +(h / 2), -0.3,  1.0, 0.0)
 
   // 第二个三角面
-  vertex.push(-(w / 2), -(h / 2), -2.0)
-  vertex.push(+(w / 2), +(h / 2), -2.0)
-  vertex.push(-(w / 2), +(h / 2), -2.0)
+  vertex.push(-(w / 2), -(h / 2), -0.3,  0.0, 1.0)
+  vertex.push(+(w / 2), +(h / 2), -0.3,  1.0, 0.0)
+  vertex.push(-(w / 2), +(h / 2), -0.3,  0.0, 0.0)
 
   return vertex
 }
@@ -73,7 +75,7 @@ function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { m
 }
 
 /**
- * 先根据列数画交替往两边出一条垂直居中行，在以瀑布流计算方式向两边上下追加排列
+ * 先根据列数画交替往两边出一条垂直居中行，在以瀑布流计算方式向上下追加排列
  * 
  * 由于图形的计算方式是先中屏幕中心点左右依此交替绘制出多列一行的一条线，然后在根据这一条线做瀑布流布局
  * 所以他的展示方式跟传入的photos的顺序是完全不一样的。
@@ -93,7 +95,7 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   }
 
   const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
-  const gridLayoutVertex: Float32Array = new Float32Array(6 * 3 * photos.length)  // 用于存储每个格子的中心顶点位置信息
+  const gridLayoutVertex: Float32Array = new Float32Array(6 * 5 * photos.length)  // 用于存储每个格子的中心顶点位置信息
   const gridLayoutCols: number[][] = new Array(col).fill('').map(() => []) // 用于存储每列的所有图像对应下标
 
   const isOddCol = col % 2 === 1 // 是否为奇数列
@@ -134,25 +136,25 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   for (let i = col; i < photos.length; i++) {
     const h = photos[i].vertex[1]
 
-    if (i === 10) debugger
-
     // 开始瀑布流计算
     const { minColIndex, nextTop, nextBottom } = getWaterfallFlowNext(colInfo)
 
-    const currentOffsetY = h / 2 + gap // 当前列下部分当前顶点的偏移量
+    const currentOffsetY = h / 2 + gap // 当前图片顶点的自身偏移量
+    const appendOffsetY = h + gap // 追加图片的偏移量
+    const [topY, bottomY, , x] = colInfo[minColIndex]
+
+    colInfo[minColIndex][2] += h // 更新高度总和
 
     // 往上追加
     if (nextTop) {
-      colInfo[minColIndex][0] += currentOffsetY // 更新上部分的偏移范围
-      colInfo[minColIndex][2] += h + gap // 更新高度总和
-      gridLayoutMatrix[minColIndex].unshift([colInfo[minColIndex][3], colInfo[minColIndex][0], 0.0, i])
+      gridLayoutMatrix[minColIndex].unshift([x, topY + currentOffsetY, 0.0, i])
+      colInfo[minColIndex][0] += appendOffsetY // 更新上部分的偏移范围
     }
 
     // 往下追加
     if (nextBottom) {
-      colInfo[minColIndex][1] -= currentOffsetY // 更新下部分的偏移范围
-      colInfo[minColIndex][2] += h + gap // 更新高度总和
-      gridLayoutMatrix[minColIndex].push([colInfo[minColIndex][3], colInfo[minColIndex][1], 0.0, i])
+      gridLayoutMatrix[minColIndex].push([x, bottomY - currentOffsetY, 0.0, i])
+      colInfo[minColIndex][1] -= appendOffsetY // 更新下部分的偏移范围
     }
   }
 
@@ -163,7 +165,7 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
       const [,,, index] = colItem
       const [w, h] = photos[index].vertex
       // 计算当前图片的中心点位置
-      gridLayoutVertex.set(getPhotoCenterVertex(w, h), count * 6 * 3)
+      gridLayoutVertex.set(getPhotoCenterVertex(w, h), count * 6 * 5)
       count++
     }
   }
