@@ -30,7 +30,7 @@ const wgslShader = /* wgsl */`
     var matrix_index = u32(vertex_index / 6);
 
     output.Position = mvpMatrix[matrix_index] * vec4<f32>(pos, 1.0);
-    output.fragPosition = vec4<f32>(pos, 1.0);
+    output.fragPosition = vec4<f32>(pos, 1.0) + vec4<f32>(1.0, 1.0, 1.0, 1.0);
     output.fragUV = uv;
 
     return output;

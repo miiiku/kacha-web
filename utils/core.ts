@@ -229,7 +229,7 @@ class InfiniteScrollingPhotos {
   }
 
   transformMatrix(offsetX: number, offsetY: number) {
-    const { aspect, locations } = this
+    const { locations } = this
     const { gridLayoutMatrix, gridLayoutTransform } = locations
 
     if (gridLayoutMatrix === undefined || gridLayoutTransform === undefined) {
@@ -242,7 +242,7 @@ class InfiniteScrollingPhotos {
         const [x, y, z] = colItem
         const transformX = x + offsetX
         const transformY = y - offsetY
-        const mvpMatrix = getMvpMatrix(aspect, [transformX, transformY, z])
+        const mvpMatrix = getMvpMatrix([transformX, transformY, z])
         colItem[0] = transformX
         colItem[1] = transformY
         colItem[2] = z
@@ -321,6 +321,7 @@ class InfiniteScrollingPhotos {
     this.canvas.height = vh;
     this.aspect = vw / vh;
     this.calcPhotoRenderSize();
+    console.log(this.photos)
     if (this.device) {
       this.transformMatrix(0, 0);
       this.draw();
@@ -329,9 +330,9 @@ class InfiniteScrollingPhotos {
 
   calcPhotoRenderSize() {
     if (this.photos.length > 0) {
-      const colW = this.cw / (this.col + 1);
+      const colW = this.cw / (this.col + 1)
       this.photos.forEach(photo => {
-        const colH = colW / photo.rate;
+        const colH = colW / photo.rate
         photo.size = [colW, colH]
         photo.vertex = [colW / this.cw, colH / this.ch]
       });
@@ -346,6 +347,7 @@ class InfiniteScrollingPhotos {
 
       this.photos.push({
         img,
+        src: photo,
         rate: img.width / img.height,
         size: [img.width, img.height],
         vertex: [0, 0]

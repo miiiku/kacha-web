@@ -1,7 +1,6 @@
 import { mat4, vec3 } from 'gl-matrix'
 
 function getMvpMatrix(
-  aspect = 1,
   position = [0, 0, 0],
   rotation = [0, 0, 0],
   scale = [1, 1, 1]
@@ -16,10 +15,8 @@ function getMvpMatrix(
   // scale
   mat4.scale(modelViewMatrix, modelViewMatrix, vec3.fromValues(scale[0], scale[1], scale[2]))
   
-  // return modelViewMatrix as Float32Array
-
   const projectionMatrix = mat4.create();
-  mat4.perspective(projectionMatrix, Math.PI / 2, aspect, 0, 1000);
+  mat4.ortho(projectionMatrix, -1, +1, -1, +1, -1, +1);
 
   const mvpMatrix = mat4.create();
   mat4.multiply(mvpMatrix, projectionMatrix, modelViewMatrix);
@@ -31,14 +28,14 @@ function getPhotoCenterVertex(w: number, h: number) : Array<number> {
   const vertex = []
   // x y z | u v
   // 第一个三角面
-  vertex.push(-(w / 2), -(h / 2), -0.3,  0.0, 1.0)
-  vertex.push(+(w / 2), -(h / 2), -0.3,  1.0, 1.0)
-  vertex.push(+(w / 2), +(h / 2), -0.3,  1.0, 0.0)
+  vertex.push(-(w / 2), -(h / 2), 0.0,  0.0, 1.0)
+  vertex.push(+(w / 2), -(h / 2), 0.0,  1.0, 1.0)
+  vertex.push(+(w / 2), +(h / 2), 0.0,  1.0, 0.0)
 
   // 第二个三角面
-  vertex.push(-(w / 2), -(h / 2), -0.3,  0.0, 1.0)
-  vertex.push(+(w / 2), +(h / 2), -0.3,  1.0, 0.0)
-  vertex.push(-(w / 2), +(h / 2), -0.3,  0.0, 0.0)
+  vertex.push(-(w / 2), -(h / 2), 0.0,  0.0, 1.0)
+  vertex.push(+(w / 2), +(h / 2), 0.0,  1.0, 0.0)
+  vertex.push(-(w / 2), +(h / 2), 0.0,  0.0, 0.0)
 
   return vertex
 }
@@ -75,7 +72,7 @@ function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { m
 }
 
 /**
- * 先根据列数画交替往两边出一条垂直居中行，在以瀑布流计算方式向上下追加排列
+ * 先根据列数交替往两边出一条垂直居中行，在以瀑布流计算方式向上下追加排列
  * 
  * 由于图形的计算方式是先中屏幕中心点左右依此交替绘制出多列一行的一条线，然后在根据这一条线做瀑布流布局
  * 所以他的展示方式跟传入的photos的顺序是完全不一样的。

@@ -10,6 +10,7 @@ type ISP_Photos = ISP_Photo[]
 
 interface ISP_Photo {
   img: ImageBitmap,
+  src: string,
   rate: number,
   size: Array2L<number>,
   vertex: Array2L<number>,
