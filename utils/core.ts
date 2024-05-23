@@ -150,14 +150,25 @@ class InfiniteScrollingPhotos {
       throw new Error('WebGPU pipeline not found');
     }
 
-    const { gridLayoutMatrix, gridLayoutVertex } = getGridLayoutVertex(photos, col, gap)
+    const { gridLayoutMatrix, gridLayoutVertex, gridLayoutIndex } = getGridLayoutVertex(photos, col, gap)
 
     const vertexBuffer = device.createBuffer({
+      label: 'Vertex Buffer',
       size: gridLayoutVertex.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
+    const indexBuffer = device.createBuffer({
+      label: 'Index Buffer',
+      size: gridLayoutIndex.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+
+    device.queue.writeBuffer(vertexBuffer, 0, gridLayoutVertex)
+    device.queue.writeBuffer(indexBuffer, 0, gridLayoutIndex)
+
     const mvpBuffer = device.createBuffer({
+      label: 'MVP Buffer',
       size: 4 * 4 * 4 * photos.length, // 4 x 4 x float32 x photos.length
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
@@ -174,10 +185,8 @@ class InfiniteScrollingPhotos {
 
     const gridLayoutTransform = new Float32Array(photos.length * 16)
 
-    device.queue.writeBuffer(vertexBuffer, 0, gridLayoutVertex)
-
-    this.buffers = { vertexBuffer, mvpBuffer, mvpGroup }
-    this.locations = { gridLayoutVertex, gridLayoutMatrix, gridLayoutTransform }
+    this.buffers = { vertexBuffer, indexBuffer, mvpBuffer, mvpGroup }
+    this.locations = { gridLayoutVertex, gridLayoutIndex, gridLayoutMatrix, gridLayoutTransform }
   }
 
   initTextureBuffer() {
@@ -259,20 +268,16 @@ class InfiniteScrollingPhotos {
       throw new Error('WebGPU device or pipeline not found');
     }
 
-    const { vertexBuffer, mvpBuffer, mvpGroup, textureGroup } = buffers;
-    const { gridLayoutVertex, gridLayoutTransform } = locations;
+    const { vertexBuffer, indexBuffer, mvpBuffer, mvpGroup, textureGroup } = buffers;
+    const { gridLayoutIndex, gridLayoutTransform } = locations;
 
-    if (mvpBuffer === undefined || vertexBuffer === undefined || mvpGroup === undefined || textureGroup === undefined) {
+    if (vertexBuffer === undefined || indexBuffer === undefined || mvpBuffer === undefined || mvpGroup === undefined || textureGroup === undefined) {
       throw new Error('WebGPU buffer or bind mvpGroup not found');
     }
 
-    if (gridLayoutVertex === undefined || gridLayoutTransform === undefined) {
-      throw new Error('WebGPU gridLayoutVertex or gridLayoutTransform not found');
+    if (gridLayoutIndex === undefined || gridLayoutTransform === undefined) {
+      throw new Error('WebGPU gridLayoutIndex or gridLayoutTransform not found');
     }
-
-    // console.log(`matrix count: ${gridLayoutTransform.length / 16}`)
-    // console.log(`gridLayoutVertex: ${(gridLayoutVertex?.length || 0) / 6 / 3}`)
-    // console.log(`gridLayoutTransform: ${gridLayoutTransform.length / 16}`)
 
     device.queue.writeBuffer(mvpBuffer, 0, gridLayoutTransform)
 
@@ -285,12 +290,13 @@ class InfiniteScrollingPhotos {
         storeOp: 'store',
       }]
     });
-
+  
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer);
     renderPass.setBindGroup(0, mvpGroup)
     renderPass.setBindGroup(1, textureGroup)
-    renderPass.draw(gridLayoutVertex.length / 5);
+    renderPass.setIndexBuffer(indexBuffer, 'uint32');
+    renderPass.drawIndexed(gridLayoutIndex.length, 1, 0, 0, 0);
     renderPass.end();
     device.queue.submit([commandEncoder.finish()]);
   }

@@ -24,20 +24,51 @@ function getMvpMatrix(
   return mvpMatrix as Float32Array
 }
 
-function getPhotoCenterVertex(w: number, h: number) : Array<number> {
-  const vertex = []
-  // x y z | u v
-  // 第一个三角面
-  vertex.push(-(w / 2), -(h / 2), 0.0,  0.0, 1.0)
-  vertex.push(+(w / 2), -(h / 2), 0.0,  1.0, 1.0)
-  vertex.push(+(w / 2), +(h / 2), 0.0,  1.0, 0.0)
+function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint32Array } {
+  // 0--1 4
+  // | / /|
+  // |/ / |
+  // 2 3--5
 
-  // 第二个三角面
-  vertex.push(-(w / 2), -(h / 2), 0.0,  0.0, 1.0)
-  vertex.push(+(w / 2), +(h / 2), 0.0,  1.0, 0.0)
-  vertex.push(-(w / 2), +(h / 2), 0.0,  0.0, 0.0)
+  // 不使用索引缓冲区需要的额外空间 = a = size * 2 * 5
+  // 使用索引缓冲区需要的额外空间 = b = size * 6
+  // 对比下来节省的空间 = a - b
 
-  return vertex
+  const gridLayoutVertex: Float32Array = new Float32Array(4 * 5 * photos.length)  // 用于存储每个格子的中心顶点位置信息
+  const gridLayoutIndex: Uint32Array   = new Uint32Array(6 * photos.length)       // 用于存储每个格子的四个顶点索引信息
+
+  let count = 0
+
+  // 按布局顺序填充顶点数据
+  for (let col of gridLayout) {
+    for (let colItem of col) {
+      const [,,, index] = colItem
+      const [w, h] = photos[index].vertex
+      const vertexArray = []
+      const indexCount = count * 4
+
+      // 计算当前图片的中心点顶点位置
+      vertexArray.push(-(w / 2), +(h / 2), 0.0,  0.0, 0.0) // 0
+      vertexArray.push(+(w / 2), +(h / 2), 0.0,  1.0, 0.0) // 1 4
+      vertexArray.push(-(w / 2), -(h / 2), 0.0,  0.0, 1.0) // 2 3
+      vertexArray.push(+(w / 2), -(h / 2), 0.0,  1.0, 1.0) // 5
+      gridLayoutVertex.set(vertexArray, count * 4 * 5)
+
+      // 计算顶点索引信息
+      gridLayoutIndex.set([
+        indexCount + 0,
+        indexCount + 1,
+        indexCount + 2,
+        indexCount + 2,
+        indexCount + 1,
+        indexCount + 3,
+      ], count * 6)
+
+      count++
+    }
+  }
+
+  return { gridLayoutVertex, gridLayoutIndex }
 }
 
 function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } {
@@ -87,13 +118,7 @@ function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { m
  * @returns 
  */
 function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
-  for (let photo of photos) {
-    console.log("for:", photo.vertex[1])
-  }
-
   const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
-  const gridLayoutVertex: Float32Array = new Float32Array(6 * 5 * photos.length)  // 用于存储每个格子的中心顶点位置信息
-  const gridLayoutCols: number[][] = new Array(col).fill('').map(() => []) // 用于存储每列的所有图像对应下标
 
   const isOddCol = col % 2 === 1 // 是否为奇数列
   const rowInfo: [leftX: number, rightX: number] = [0, 0]
@@ -155,21 +180,12 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
     }
   }
 
-  // 按布局顺序填充顶点数据
-  let count = 0
-  for (let col of gridLayoutMatrix) {
-    for (let colItem of col) {
-      const [,,, index] = colItem
-      const [w, h] = photos[index].vertex
-      // 计算当前图片的中心点位置
-      gridLayoutVertex.set(getPhotoCenterVertex(w, h), count * 6 * 5)
-      count++
-    }
-  }
+  console.log('gridLayoutMatrix', gridLayoutMatrix)
+  
+  // 用布局信息去获取顶点数据和索引数据
+  const { gridLayoutVertex, gridLayoutIndex } = getVertexFromGridLayout(gridLayoutMatrix, photos)
 
-  console.log(gridLayoutMatrix)
-
-  return { gridLayoutVertex, gridLayoutMatrix }
+  return { gridLayoutVertex, gridLayoutIndex, gridLayoutMatrix }
 }
 
 export { getMvpMatrix, getGridLayoutVertex }

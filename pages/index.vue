@@ -15,13 +15,13 @@ onMounted(() => {
     'https://kacha.sukoshi.xyz/temp/2.webp',
     'https://kacha.sukoshi.xyz/temp/3.webp',
     'https://kacha.sukoshi.xyz/temp/4.webp',
-    'https://kacha.sukoshi.xyz/temp/5.webp',
-    'https://kacha.sukoshi.xyz/temp/6.webp',
-    'https://kacha.sukoshi.xyz/temp/7.webp',
-    'https://kacha.sukoshi.xyz/temp/8.webp',
-    'https://kacha.sukoshi.xyz/temp/9.webp',
-    'https://kacha.sukoshi.xyz/temp/10.webp',
-    'https://kacha.sukoshi.xyz/temp/11.webp',
+    // 'https://kacha.sukoshi.xyz/temp/5.webp',
+    // 'https://kacha.sukoshi.xyz/temp/6.webp',
+    // 'https://kacha.sukoshi.xyz/temp/7.webp',
+    // 'https://kacha.sukoshi.xyz/temp/8.webp',
+    // 'https://kacha.sukoshi.xyz/temp/9.webp',
+    // 'https://kacha.sukoshi.xyz/temp/10.webp',
+    // 'https://kacha.sukoshi.xyz/temp/11.webp',
   ]);
 })
 </script>
