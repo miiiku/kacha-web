@@ -1,5 +1,5 @@
 import { wgslShader } from '@/constant/photo';
-import { getMvpMatrix, getGridLayoutVertex } from '@/utils/math';
+import { getMvpMatrix, getGridLayoutVertex, numMipLevels } from '@/utils/math';
 
 class InfiniteScrollingPhotos {
   constructor(selectors: string) {
@@ -25,7 +25,7 @@ class InfiniteScrollingPhotos {
     this.ch = window.innerHeight;
     this.aspect = this.cw / this.ch;
     this.gap = 0.02;
-    this.col = 4;
+    this.col = 5;
     this.photos = [];
 
     this.buffers = {}
@@ -190,28 +190,19 @@ class InfiniteScrollingPhotos {
   }
 
   initTextureBuffer() {
-    const { device, pipeline } = this;
+    const { photos, device, pipeline, locations } = this;
     
     if (device === undefined || pipeline === undefined) {
       throw new Error('WebGPU device or pipeline not found');
     }
 
-    const img = this.photos[0].img
-    const textureSize = [img.width, img.height]
+    const { gridLayoutMatrix } = locations
 
-    // create empty texture
-    const texture = device.createTexture({
-      size: textureSize,
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
-    })
+    if (gridLayoutMatrix === undefined) {
+      throw new Error('WebGPU gridLayoutMatrix not found');
+    }
 
-    // update image to GPUTexture
-    device.queue.copyExternalImageToTexture(
-      { source: img },
-      { texture: texture },
-      textureSize
-    )
+    const textureGroupArray = []
 
     // Create a sampler with linear filtering for smooth interpolation.
     const sampler = device.createSampler({
@@ -219,22 +210,50 @@ class InfiniteScrollingPhotos {
       minFilter: 'linear',
     })
 
-    const textureGroup = device.createBindGroup({
-      label: 'Texture Group with Texture/Sampler',
-      layout: pipeline.getBindGroupLayout(1),
-      entries: [
-        {
-          binding: 0,
-          resource: sampler
-        },
-        {
-          binding: 1,
-          resource: texture.createView()
-        }
-      ]
-    })
+    for (let col of gridLayoutMatrix) {
+      for (let colItem of col) {
+        const photoIndex = colItem[3]
+        const { img, originalSize } = photos[photoIndex]
+        
+        // create empty texture
+        const texture = device.createTexture({
+          mipLevelCount: numMipLevels(originalSize),
+          size: originalSize,
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+        })
 
-    this.buffers.textureGroup = textureGroup
+        console.log(numMipLevels(originalSize))
+
+        // update image to GPUTexture
+        device.queue.copyExternalImageToTexture(
+          { source: img },
+          { texture: texture },
+          originalSize
+        )
+
+        generateMips(device, texture);
+
+        const textureGroup = device.createBindGroup({
+          label: 'Texture Group with Texture/Sampler',
+          layout: pipeline.getBindGroupLayout(1),
+          entries: [
+            {
+              binding: 0,
+              resource: sampler
+            },
+            {
+              binding: 1,
+              resource: texture.createView()
+            }
+          ]
+        })
+
+        textureGroupArray.push(textureGroup)
+      }
+    }
+
+    this.buffers.textureGroupArray = textureGroupArray
   }
 
   transformMatrix(offsetX: number, offsetY: number) {
@@ -268,10 +287,10 @@ class InfiniteScrollingPhotos {
       throw new Error('WebGPU device or pipeline not found');
     }
 
-    const { vertexBuffer, indexBuffer, mvpBuffer, mvpGroup, textureGroup } = buffers;
+    const { vertexBuffer, indexBuffer, mvpBuffer, mvpGroup, textureGroupArray } = buffers;
     const { gridLayoutIndex, gridLayoutTransform } = locations;
 
-    if (vertexBuffer === undefined || indexBuffer === undefined || mvpBuffer === undefined || mvpGroup === undefined || textureGroup === undefined) {
+    if (vertexBuffer === undefined || indexBuffer === undefined || mvpBuffer === undefined || mvpGroup === undefined || textureGroupArray === undefined) {
       throw new Error('WebGPU buffer or bind mvpGroup not found');
     }
 
@@ -280,25 +299,29 @@ class InfiniteScrollingPhotos {
     }
 
     device.queue.writeBuffer(mvpBuffer, 0, gridLayoutTransform)
-
+    
     const commandEncoder = device.createCommandEncoder();
     const renderPass = commandEncoder.beginRenderPass({
       colorAttachments: [{
         view: this.context.getCurrentTexture().createView(),
-        clearValue: [0.0, 0.0, 0.0, 1.0],
+        clearValue: [0.3, 0.3, 0.3, 1.0],
         loadOp: 'clear',
         storeOp: 'store',
       }]
     });
   
-    renderPass.setPipeline(pipeline);
-    renderPass.setVertexBuffer(0, vertexBuffer);
+    renderPass.setPipeline(pipeline)
+    renderPass.setVertexBuffer(0, vertexBuffer)
+    renderPass.setIndexBuffer(indexBuffer, 'uint16')
     renderPass.setBindGroup(0, mvpGroup)
-    renderPass.setBindGroup(1, textureGroup)
-    renderPass.setIndexBuffer(indexBuffer, 'uint32');
-    renderPass.drawIndexed(gridLayoutIndex.length, 1, 0, 0, 0);
-    renderPass.end();
-    device.queue.submit([commandEncoder.finish()]);
+    {
+      textureGroupArray.forEach((texture, index) => {
+        renderPass.setBindGroup(1, texture)
+        renderPass.drawIndexed(6, 1, index * 6)
+      })
+    }
+    renderPass.end()
+    device.queue.submit([commandEncoder.finish()])
   }
 
   bindEvents() {
@@ -327,7 +350,6 @@ class InfiniteScrollingPhotos {
     this.canvas.height = vh;
     this.aspect = vw / vh;
     this.calcPhotoRenderSize();
-    console.log(this.photos)
     if (this.device) {
       this.transformMatrix(0, 0);
       this.draw();
@@ -339,8 +361,8 @@ class InfiniteScrollingPhotos {
       const colW = this.cw / (this.col + 1)
       this.photos.forEach(photo => {
         const colH = colW / photo.rate
-        photo.size = [colW, colH]
-        photo.vertex = [colW / this.cw, colH / this.ch]
+        photo.scaledSize = [colW, colH]
+        photo.vertexSize = [colW / this.cw, colH / this.ch]
       });
     }
   }
@@ -355,8 +377,9 @@ class InfiniteScrollingPhotos {
         img,
         src: photo,
         rate: img.width / img.height,
-        size: [img.width, img.height],
-        vertex: [0, 0]
+        scaledSize: [img.width, img.height],
+        originalSize: [img.width, img.height],
+        vertexSize: [0, 0]
       });
 
       if (count-- === 0) {

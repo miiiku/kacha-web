@@ -12,8 +12,9 @@ interface ISP_Photo {
   img: ImageBitmap,
   src: string,
   rate: number,
-  size: Array2L<number>,
-  vertex: Array2L<number>,
+  originalSize: Array2L<number>,
+  scaledSize: Array2L<number>,
+  vertexSize: Array2L<number>,
 }
 
 interface ISP_Buffer {
@@ -21,12 +22,12 @@ interface ISP_Buffer {
   indexBuffer?: GPUBuffer;
   mvpBuffer?: GPUBuffer;
   mvpGroup?: GPUBindGroup;
-  textureGroup?: GPUBindGroup;
+  textureGroupArray?: GPUBindGroup[];
 }
 
 interface ISP_Locations {
   gridLayoutVertex?: Float32Array,
-  gridLayoutIndex?: Uint32Array,
+  gridLayoutIndex?: Uint16Array,
   gridLayoutMatrix?: ISP_LayoutData,
   gridLayoutTransform?: Float32Array,
 }

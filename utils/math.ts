@@ -24,7 +24,7 @@ function getMvpMatrix(
   return mvpMatrix as Float32Array
 }
 
-function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint32Array } {
+function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint16Array } {
   // 0--1 4
   // | / /|
   // |/ / |
@@ -35,7 +35,7 @@ function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos)
   // 对比下来节省的空间 = a - b
 
   const gridLayoutVertex: Float32Array = new Float32Array(4 * 5 * photos.length)  // 用于存储每个格子的中心顶点位置信息
-  const gridLayoutIndex: Uint32Array   = new Uint32Array(6 * photos.length)       // 用于存储每个格子的四个顶点索引信息
+  const gridLayoutIndex: Uint16Array   = new Uint16Array(6 * photos.length)       // 用于存储每个格子的四个顶点索引信息
 
   let count = 0
 
@@ -43,7 +43,7 @@ function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos)
   for (let col of gridLayout) {
     for (let colItem of col) {
       const [,,, index] = colItem
-      const [w, h] = photos[index].vertex
+      const [w, h] = photos[index].vertexSize
       const vertexArray = []
       const indexCount = count * 4
 
@@ -67,6 +67,9 @@ function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos)
       count++
     }
   }
+
+  // console.log('gridLayoutVertex', gridLayoutVertex)
+  // console.log('gridLayoutIndex', gridLayoutIndex)
 
   return { gridLayoutVertex, gridLayoutIndex }
 }
@@ -128,7 +131,7 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
 
   // 初始化所有列
   for (let i = 0; i < col; i++) {
-    let [w, h] = photos[i].vertex
+    let [w, h] = photos[i].vertexSize
     // 中心点
     if (i === 0 && isOddCol) {
       const midIndex = Math.floor(col / 2)
@@ -156,7 +159,7 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
 
 
   for (let i = col; i < photos.length; i++) {
-    const h = photos[i].vertex[1]
+    const h = photos[i].vertexSize[1]
 
     // 开始瀑布流计算
     const { minColIndex, nextTop, nextBottom } = getWaterfallFlowNext(colInfo)
@@ -188,4 +191,121 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   return { gridLayoutVertex, gridLayoutIndex, gridLayoutMatrix }
 }
 
-export { getMvpMatrix, getGridLayoutVertex }
+
+function numMipLevels(sizes: number[]): number {
+  const maxSize = Math.max(...sizes);
+  return 1 + Math.log2(maxSize) | 0;
+};
+
+
+const generateMips = (() => {
+  let sampler: GPUSampler;
+  let module : GPUShaderModule;
+  const pipelineByFormat: { [key: string]: GPURenderPipeline } = {};
+
+  return function generateMips(device: GPUDevice, texture: GPUTexture) {
+    if (!module) {
+      module = device.createShaderModule({
+        label: 'textured quad shaders for mip level generation',
+        code : `
+          struct VSOutput {
+            @builtin (position) position: vec4f,
+            @location(0) texcoord       : vec2f,
+          };
+
+          @vertex fn vs(
+            @builtin(vertex_index) vertexIndex: u32
+          ) -> VSOutput {
+            let pos = array(
+              // 1st triangle    
+              vec2f(0.0,  0.0),   // center, center
+              vec2f(1.0,  0.0),   // right, center
+              vec2f(0.0,  1.0),   // center, top
+
+              // 2st triangle                    
+              vec2f(0.0,  1.0),   // center, top
+              vec2f(1.0,  0.0),   // right, center
+              vec2f(1.0,  1.0),   // right, top
+            );
+
+            var vsOutput: VSOutput;
+            let xy                = pos[vertexIndex];
+                vsOutput.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);
+                vsOutput.texcoord = vec2f(xy.x, 1.0 - xy.y);
+            return vsOutput;
+          }
+
+          @group(0) @binding(0) var ourSampler: sampler;
+          @group(0) @binding(1) var ourTexture: texture_2d<f32>;
+
+          @fragment fn fs(fsInput: VSOutput) -> @location(0) vec4f {
+            return textureSample(ourTexture, ourSampler, fsInput.texcoord);
+          }
+        `,
+      });
+
+      sampler = device.createSampler({
+        minFilter: 'linear',
+      });
+    }
+
+    if (!pipelineByFormat[texture.format]) {
+      pipelineByFormat[texture.format] = device.createRenderPipeline({
+        label: 'mip level generator pipeline',
+        layout: 'auto',
+        vertex: {
+          module,
+        },
+        fragment: {
+          module,
+          targets: [{ format: texture.format }],
+        },
+      });
+    }
+
+    const pipeline = pipelineByFormat[texture.format];
+
+    const encoder = device.createCommandEncoder({ label: 'mip gen encoder' });
+
+    let width        = texture.width;
+    let height       = texture.height;
+    let baseMipLevel = 0;
+
+    while (width > 1 || height > 1) {
+      width = Math.max(1, width / 2 | 0);
+      height = Math.max(1, height / 2 | 0);
+
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: texture.createView({ baseMipLevel, mipLevelCount: 1 }) },
+        ],
+      });
+
+      ++baseMipLevel;
+
+      const renderPassDescriptor: GPURenderPassDescriptor = {
+        label: 'our basic canvas renderPass',
+        colorAttachments: [
+          {
+            view   : texture.createView({ baseMipLevel, mipLevelCount: 1 }),
+            loadOp : 'clear',
+            storeOp: 'store',
+          },
+        ],
+      };
+
+      const pass = encoder.beginRenderPass(renderPassDescriptor);
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(6);  // call our vertex shader 6 times
+      pass.end();
+    }
+
+    const commandBuffer = encoder.finish();
+    device.queue.submit([commandBuffer]);
+  };
+})();
+
+export { getMvpMatrix, getGridLayoutVertex, numMipLevels, generateMips }
