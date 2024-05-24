@@ -25,7 +25,7 @@ class InfiniteScrollingPhotos {
     this.ch = window.innerHeight;
     this.aspect = this.cw / this.ch;
     this.gap = 0.02;
-    this.col = 5;
+    this.col = 4;
     this.photos = [];
 
     this.buffers = {}
@@ -140,7 +140,7 @@ class InfiniteScrollingPhotos {
   }
 
   initVertexBuffer() {
-    const { device, pipeline, photos, col, gap } = this;
+    const { device, pipeline, photos, col, gap, aspect } = this;
 
     if (device === undefined) {
       throw new Error('WebGPU device not found');
@@ -150,7 +150,7 @@ class InfiniteScrollingPhotos {
       throw new Error('WebGPU pipeline not found');
     }
 
-    const { gridLayoutMatrix, gridLayoutVertex, gridLayoutIndex } = getGridLayoutVertex(photos, col, gap)
+    const { gridLayoutMatrix, gridLayoutVertex, gridLayoutIndex } = getGridLayoutVertex(photos, col, gap, aspect)
 
     const vertexBuffer = device.createBuffer({
       label: 'Vertex Buffer',
@@ -222,8 +222,6 @@ class InfiniteScrollingPhotos {
           format: 'rgba8unorm',
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
         })
-
-        console.log(numMipLevels(originalSize))
 
         // update image to GPUTexture
         device.queue.copyExternalImageToTexture(
@@ -350,15 +348,18 @@ class InfiniteScrollingPhotos {
     this.canvas.height = vh;
     this.aspect = vw / vh;
     this.calcPhotoRenderSize();
-    if (this.device) {
-      this.transformMatrix(0, 0);
-      this.draw();
-    }
+    // if (this.device) {
+    //   this.initVertexBuffer();
+    //   this.initTextureBuffer();
+    //   this.transformMatrix(0, 0);
+    //   this.draw();
+    // }
   }
 
   calcPhotoRenderSize() {
     if (this.photos.length > 0) {
-      const colW = this.cw / (this.col + 1)
+      // 因为坐标计算是走-1到+1，为2倍，所以这里如果要让每列的宽度为屏幕的1/4，则每列的宽度为cw/2
+      const colW = this.cw / 2
       this.photos.forEach(photo => {
         const colH = colW / photo.rate
         photo.scaledSize = [colW, colH]

@@ -120,7 +120,7 @@ function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { m
  * @param gap 图片之间的间距
  * @returns 
  */
-function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
+function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number, aspect: number) {
   const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
 
   const isOddCol = col % 2 === 1 // 是否为奇数列
@@ -135,8 +135,8 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
     // 中心点
     if (i === 0 && isOddCol) {
       const midIndex = Math.floor(col / 2)
-      rowInfo[0] = -(w / 2 + gap / 2)
-      rowInfo[1] = +(w / 2 + gap / 2)
+      rowInfo[0] = -(w / 2)
+      rowInfo[1] = +(w / 2)
       colInfo[midIndex] = [+(h / 2), -(h / 2), h, 0]
       gridLayoutMatrix[midIndex][0] = [0.0, 0.0, 0.0, i]
       continue
@@ -144,14 +144,23 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
     // 左边
     if (i % 2 === 0) {
       const colIndex = Math.floor(col / 2) - 1 - (i / 2 - offsetCol)
-      rowInfo[0] -= i === offsetCol * 2 ? w / 2 + gap / 2 : w + gap
+      if (i === offsetCol * 2) {
+        rowInfo[0] -= w / 2 + (isOddCol ? gap : gap / 2)
+      } else {
+        rowInfo[0] -= w + gap
+      }
       colInfo[colIndex] = [+(h / 2), -(h / 2), h, rowInfo[0]]
       gridLayoutMatrix[colIndex][0] = [rowInfo[0], 0.0, 0.0, i]
     }
     // 右边
     if (i % 2 === 1) {
       const colIndex = Math.floor(col / 2) + (i - 1) / 2 + offsetCol
-      rowInfo[1] += i === 1 ? w /2 + gap / 2 : w + gap
+      if (i === 1) {
+        console.log("first right col")
+        rowInfo[1] += w / 2 + (isOddCol ? gap : gap / 2)
+      } else {
+        rowInfo[1] += w + gap
+      }
       colInfo[colIndex] = [+(h / 2), -(h / 2), h, rowInfo[1]]
       gridLayoutMatrix[colIndex][0] = [rowInfo[1], 0.0, 0.0, i]
     }
@@ -161,14 +170,13 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number) {
   for (let i = col; i < photos.length; i++) {
     const h = photos[i].vertexSize[1]
 
-    // 开始瀑布流计算
+    // 获取瀑布流计算结果
     const { minColIndex, nextTop, nextBottom } = getWaterfallFlowNext(colInfo)
+    const [topY, bottomY, , x]                 = colInfo[minColIndex]
+    const currentOffsetY                       = h / 2 + gap * aspect           // 当前图片顶点的自身偏移量
+    const appendOffsetY                        = h + gap * aspect               // 追加图片的偏移量
 
-    const currentOffsetY = h / 2 + gap // 当前图片顶点的自身偏移量
-    const appendOffsetY = h + gap // 追加图片的偏移量
-    const [topY, bottomY, , x] = colInfo[minColIndex]
-
-    colInfo[minColIndex][2] += h // 更新高度总和
+    colInfo[minColIndex][2] += h  // 更新高度总和
 
     // 往上追加
     if (nextTop) {
