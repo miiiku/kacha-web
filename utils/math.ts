@@ -1,5 +1,16 @@
 import { mat4, vec3 } from 'gl-matrix'
 
+type gridLayoutRowInfo = [leftX: number, rightX: number]
+
+type gridLayoutColInfo = [topY: number, bottomY: number, totalHeight: number, x: number]
+
+/**
+ * 获取正交投影矩阵信息
+ * @param position 平移
+ * @param rotation 旋转
+ * @param scale 缩放
+ * @returns 
+ */
 function getMvpMatrix(
   position = [0, 0, 0],
   rotation = [0, 0, 0],
@@ -24,6 +35,12 @@ function getMvpMatrix(
   return mvpMatrix as Float32Array
 }
 
+/**
+ * 根据布局信息和图片信息返回顶点数据和索引数据
+ * @param gridLayout 布局信息
+ * @param photos 图片信息
+ * @returns 
+ */
 function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint16Array } {
   // 0--1 4
   // | / /|
@@ -74,7 +91,12 @@ function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos)
   return { gridLayoutVertex, gridLayoutIndex }
 }
 
-function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } {
+/**
+ * 瀑布流计算方式 获取下一个图片应该插入的column索引和追加方向
+ * @param colInfo 
+ * @returns 
+ */
+function getWaterfallFlowNext(colInfo: gridLayoutColInfo[]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } {
   let minColIndex = 0
   let nextTop = false
   let nextBottom = true
@@ -118,16 +140,15 @@ function getWaterfallFlowNext(colInfo: [number, number, number, number][]) : { m
  * @param photos 图片列表
  * @param col 总列数
  * @param gap 图片之间的间距
+ * @param aspect 屏幕的宽高比
  * @returns 
  */
 function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number, aspect: number) {
-  const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => []) // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
-
-  const isOddCol = col % 2 === 1 // 是否为奇数列
-  const rowInfo: [leftX: number, rightX: number] = [0, 0]
-  const colInfo: [topY: number, bottomY: number, totalHeight: number, x: number][] = []
-
-  let offsetCol = isOddCol ? 1 : 0 // 偏移量，用于处理偶数列的特殊情况
+  const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => [])  // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
+  const isOddCol                         = col % 2 === 1                          // 是否为奇数列
+  const offsetCol                        = isOddCol ? 1 : 0                       // 偏移量，用于处理偶数列的特殊情况
+  const rowInfo: gridLayoutRowInfo       = [0, 0]
+  const colInfo: gridLayoutColInfo[]     = []
 
   // 初始化所有列
   for (let i = 0; i < col; i++) {
@@ -190,8 +211,6 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number, aspec
       colInfo[minColIndex][1] -= appendOffsetY // 更新下部分的偏移范围
     }
   }
-
-  console.log('gridLayoutMatrix', gridLayoutMatrix)
   
   // 用布局信息去获取顶点数据和索引数据
   const { gridLayoutVertex, gridLayoutIndex } = getVertexFromGridLayout(gridLayoutMatrix, photos)
@@ -199,13 +218,20 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number, aspec
   return { gridLayoutVertex, gridLayoutIndex, gridLayoutMatrix }
 }
 
-
-function numMipLevels(sizes: number[]): number {
+/**
+ * 获取mipmap等级数
+ * @param sizes 
+ * @returns 
+ */
+function getNumMipLevels(sizes: number[]): number {
   const maxSize = Math.max(...sizes);
   return 1 + Math.log2(maxSize) | 0;
 };
 
 
+/**
+ * 使用GPU生成mipmap等级
+ */
 const generateMips = (() => {
   let sampler: GPUSampler;
   let module : GPUShaderModule;
@@ -316,4 +342,4 @@ const generateMips = (() => {
   };
 })();
 
-export { getMvpMatrix, getGridLayoutVertex, numMipLevels, generateMips }
+export { getMvpMatrix, getGridLayoutVertex, getNumMipLevels, generateMips }

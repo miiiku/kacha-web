@@ -1,5 +1,5 @@
 import { wgslShader } from '@/constant/photo';
-import { getMvpMatrix, getGridLayoutVertex, numMipLevels } from '@/utils/math';
+import { getMvpMatrix, getGridLayoutVertex, getNumMipLevels } from '@/utils/math';
 
 class InfiniteScrollingPhotos {
   constructor(selectors: string) {
@@ -32,7 +32,7 @@ class InfiniteScrollingPhotos {
     this.locations = {}
 
     this.isMove = false;
-    this.isZoom = false;
+    this.isControlDown = false;
     
     this.resize();
     this.bindEvents();
@@ -62,7 +62,7 @@ class InfiniteScrollingPhotos {
   photos: ISP_Photos;
 
   isMove: boolean;
-  isZoom: boolean;
+  isControlDown: boolean;
 
   async run() {
     await this.initGPU();
@@ -217,7 +217,7 @@ class InfiniteScrollingPhotos {
         
         // create empty texture
         const texture = device.createTexture({
-          mipLevelCount: numMipLevels(originalSize),
+          mipLevelCount: getNumMipLevels(originalSize),
           size: originalSize,
           format: 'rgba8unorm',
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
@@ -254,7 +254,7 @@ class InfiniteScrollingPhotos {
     this.buffers.textureGroupArray = textureGroupArray
   }
 
-  transformMatrix(offsetX: number, offsetY: number) {
+  transformMatrix(offsetX: number, offsetY: number, offsetZ: number = 0) {
     const { locations } = this
     const { gridLayoutMatrix, gridLayoutTransform } = locations
 
@@ -268,7 +268,8 @@ class InfiniteScrollingPhotos {
         const [x, y, z] = colItem
         const transformX = x + offsetX
         const transformY = y - offsetY
-        const mvpMatrix = getMvpMatrix([transformX, transformY, z])
+        const transformZ = z + offsetZ
+        const mvpMatrix = getMvpMatrix([transformX, transformY, transformZ])
         colItem[0] = transformX
         colItem[1] = transformY
         colItem[2] = z
@@ -324,6 +325,17 @@ class InfiniteScrollingPhotos {
 
   bindEvents() {
     const { canvas, cw, ch } = this;
+    window.addEventListener('keydown', (evt: KeyboardEvent) => {
+      if (evt.key === 'Control') {
+        this.isControlDown = true;
+      }
+    })
+    window.addEventListener('keyup', (evt: KeyboardEvent) => {
+      if (evt.key === 'Control') {
+        this.isControlDown = false;
+      }
+    })
+    // 拖动事件
     canvas.addEventListener('mousedown', () => {
       this.isMove = true;
     });
@@ -336,7 +348,30 @@ class InfiniteScrollingPhotos {
     canvas.addEventListener('mouseup', () => {
       this.isMove = false;
     });
+    // 滚动事件
+    canvas.addEventListener('wheel', (evt: WheelEvent) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const { deltaY } = evt;
+      if (this.isControlDown) {
+        this._eventZoom(deltaY);
+      } else {
+        this._eventScroll(deltaY);
+      }
+    });
     window.addEventListener('resize', () => this.resize());
+  }
+
+  _eventZoom(offset: number) {
+    console.log('zoom')
+    this.transformMatrix(0, 0, -offset / 1000)
+    this.draw()
+  }
+
+  _eventScroll(offset: number) {
+    console.log('scroll')
+    this.transformMatrix(0, -offset / 1000)
+    this.draw()
   }
 
   resize() {
@@ -364,6 +399,9 @@ class InfiniteScrollingPhotos {
         const colH = colW / photo.rate
         photo.scaledSize = [colW, colH]
         photo.vertexSize = [colW / this.cw, colH / this.ch]
+        if (photo.img.width === photo.img.height) {
+          console.log(photo.vertexSize)
+        }
       });
     }
   }
