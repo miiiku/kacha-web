@@ -11,11 +11,11 @@ type gridLayoutColInfo = [topY: number, bottomY: number, totalHeight: number, x:
  * @param scale 缩放
  * @returns 
  */
-function getMvpMatrix(
+export const getMvpMatrix = (
   position = [0, 0, 0],
   rotation = [0, 0, 0],
   scale = [1, 1, 1]
-) {
+) => {
   const modelViewMatrix = mat4.create();
   // translate position
   mat4.translate(modelViewMatrix, modelViewMatrix, vec3.fromValues(position[0], position[1], position[2]));
@@ -41,7 +41,7 @@ function getMvpMatrix(
  * @param photos 图片信息
  * @returns 
  */
-function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint16Array } {
+export const getVertexFromGridLayout = (gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint16Array } => {
   // 0--1 4
   // | / /|
   // |/ / |
@@ -96,7 +96,7 @@ function getVertexFromGridLayout(gridLayout: ISP_LayoutData, photos: ISP_Photos)
  * @param colInfo 
  * @returns 
  */
-function getWaterfallFlowNext(colInfo: gridLayoutColInfo[]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } {
+export const getWaterfallFlowNext = (colInfo: gridLayoutColInfo[]) : { minColIndex: number, nextTop: boolean, nextBottom: boolean } => {
   let minColIndex = 0
   let nextTop = false
   let nextBottom = true
@@ -143,7 +143,7 @@ function getWaterfallFlowNext(colInfo: gridLayoutColInfo[]) : { minColIndex: num
  * @param aspect 屏幕的宽高比
  * @returns 
  */
-function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number, aspect: number) {
+export const getGridLayoutVertex = (photos: ISP_Photos, col: number, gap: number, aspect: number) => {
   const gridLayoutMatrix: ISP_LayoutData = new Array(col).fill('').map(() => [])  // 用于存储每个格子的矩阵变换值信息 [x, y, z, index]
   const isOddCol                         = col % 2 === 1                          // 是否为奇数列
   const offsetCol                        = isOddCol ? 1 : 0                       // 偏移量，用于处理偶数列的特殊情况
@@ -223,16 +223,15 @@ function getGridLayoutVertex(photos: ISP_Photos, col: number, gap: number, aspec
  * @param sizes 
  * @returns 
  */
-function getNumMipLevels(sizes: number[]): number {
+export const getNumMipLevels = (sizes: number[]): number => {
   const maxSize = Math.max(...sizes);
   return 1 + Math.log2(maxSize) | 0;
 };
 
-
 /**
  * 使用GPU生成mipmap等级
  */
-const generateMips = (() => {
+export const generateMips = (() => {
   let sampler: GPUSampler;
   let module : GPUShaderModule;
   const pipelineByFormat: { [key: string]: GPURenderPipeline } = {};
@@ -341,5 +340,3 @@ const generateMips = (() => {
     device.queue.submit([commandBuffer]);
   };
 })();
-
-export { getMvpMatrix, getGridLayoutVertex, getNumMipLevels, generateMips }
