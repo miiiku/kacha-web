@@ -41,7 +41,14 @@ export const getMvpMatrix = (
  * @param photos 图片信息
  * @returns 
  */
-export const getVertexFromGridLayout = (gridLayout: ISP_LayoutData, photos: ISP_Photos): { gridLayoutVertex: Float32Array, gridLayoutIndex: Uint16Array } => {
+export const getVertexFromGridLayout = (
+  gridLayout: ISP_LayoutData,
+  photos: ISP_Photos
+): {
+  gridLayoutImgSize: Float32Array,
+  gridLayoutVertex: Float32Array,
+  gridLayoutIndex: Uint16Array
+} => {
   // 0--1 4
   // | / /|
   // |/ / |
@@ -51,8 +58,9 @@ export const getVertexFromGridLayout = (gridLayout: ISP_LayoutData, photos: ISP_
   // 使用索引缓冲区需要的额外空间 = b = size * 6
   // 对比下来节省的空间 = a - b
 
-  const gridLayoutVertex: Float32Array = new Float32Array(4 * 5 * photos.length)  // 用于存储每个格子的中心顶点位置信息
-  const gridLayoutIndex: Uint16Array   = new Uint16Array(6 * photos.length)       // 用于存储每个格子的四个顶点索引信息
+  const gridLayoutImgSize: Float32Array = new Float32Array(photos.length * 2)      // 用于存储每个图片的宽高信息
+  const gridLayoutVertex: Float32Array  = new Float32Array(4 * 5 * photos.length)  // 用于存储每个格子的中心顶点位置信息
+  const gridLayoutIndex: Uint16Array    = new Uint16Array(6 * photos.length)       // 用于存储每个格子的四个顶点索引信息
 
   let count = 0
 
@@ -64,7 +72,10 @@ export const getVertexFromGridLayout = (gridLayout: ISP_LayoutData, photos: ISP_
       const vertexArray = []
       const indexCount = count * 4
 
-      // 计算当前图片的中心点顶点位置
+      // 存储图片宽高信息
+      gridLayoutImgSize.set([w, h], count * 2)
+
+      // 计算当前图片的中心点顶点位置  x y z  u v
       vertexArray.push(-(w / 2), +(h / 2), 0.0,  0.0, 0.0) // 0
       vertexArray.push(+(w / 2), +(h / 2), 0.0,  1.0, 0.0) // 1 4
       vertexArray.push(-(w / 2), -(h / 2), 0.0,  0.0, 1.0) // 2 3
@@ -88,7 +99,7 @@ export const getVertexFromGridLayout = (gridLayout: ISP_LayoutData, photos: ISP_
   // console.log('gridLayoutVertex', gridLayoutVertex)
   // console.log('gridLayoutIndex', gridLayoutIndex)
 
-  return { gridLayoutVertex, gridLayoutIndex }
+  return { gridLayoutImgSize, gridLayoutVertex, gridLayoutIndex }
 }
 
 /**
@@ -213,9 +224,9 @@ export const getGridLayoutVertex = (photos: ISP_Photos, col: number, gap: number
   }
   
   // 用布局信息去获取顶点数据和索引数据
-  const { gridLayoutVertex, gridLayoutIndex } = getVertexFromGridLayout(gridLayoutMatrix, photos)
+  const { gridLayoutImgSize, gridLayoutVertex, gridLayoutIndex } = getVertexFromGridLayout(gridLayoutMatrix, photos)
 
-  return { gridLayoutVertex, gridLayoutIndex, gridLayoutMatrix }
+  return { gridLayoutImgSize, gridLayoutVertex, gridLayoutIndex, gridLayoutMatrix }
 }
 
 /**
@@ -340,3 +351,36 @@ export const generateMips = (() => {
     device.queue.submit([commandBuffer]);
   };
 })();
+
+export const gpuComputedVertex = (
+  device: GPUDevice,
+  modelMatrix: Float32Array,
+  projection: Float32Array
+) => {
+  const pipeline = device.createComputePipeline({
+    layout: "auto",
+    compute: {
+      module: device.createShaderModule({
+        label: "compute transform",
+        code: `
+          @group(0) @binding(0) var<storage, read> modelView: array<mat4x4<f32>>;
+          @group(0) @binding(1) var<storage, read> projection: mat4x4<f32>;
+          @group(0) @binding(2) var<storage, read_write> mvp: array<mat4x4<f32>>;
+          @group(0) @binding(3) var<uniform> count: u32;
+          
+          @compute @workgroup_size(128)
+          fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
+              // Guard against out-of-bounds work group sizes
+              let index = global_id.x;
+              if (index >= count) {
+                  return;
+              }
+          
+              mvp[index] = projection * modelView[index];
+          }
+        `,
+      }),
+      entryPoint: "main",
+    },
+  });
+};

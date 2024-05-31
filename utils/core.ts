@@ -133,7 +133,10 @@ class InfiniteScrollingPhotos {
       },
       primitive: {
         topology: 'triangle-list',
-      }
+      },
+      // multisample: {
+      //   count: 4,
+      // },
     });
     
     this.pipeline = pipeline;
@@ -150,7 +153,8 @@ class InfiniteScrollingPhotos {
       throw new Error('WebGPU pipeline not found');
     }
 
-    const { gridLayoutMatrix, gridLayoutVertex, gridLayoutIndex } = getGridLayoutVertex(photos, col, gap, aspect)
+    const { gridLayoutImgSize, gridLayoutMatrix, gridLayoutVertex, gridLayoutIndex } = getGridLayoutVertex(photos, col, gap, aspect)
+
 
     const vertexBuffer = device.createBuffer({
       label: 'Vertex Buffer',
@@ -163,9 +167,16 @@ class InfiniteScrollingPhotos {
       size: gridLayoutIndex.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
+    
+    const sizeBuffer = device.createBuffer({
+      label: 'Size Buffer',
+      size: gridLayoutImgSize.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
     device.queue.writeBuffer(vertexBuffer, 0, gridLayoutVertex)
     device.queue.writeBuffer(indexBuffer, 0, gridLayoutIndex)
+    device.queue.writeBuffer(sizeBuffer, 0, gridLayoutImgSize)
 
     const mvpBuffer = device.createBuffer({
       label: 'MVP Buffer',
@@ -179,6 +190,10 @@ class InfiniteScrollingPhotos {
         {
           binding: 0,
           resource: { buffer: mvpBuffer }
+        },
+        {
+          binding: 1,
+          resource: { buffer: sizeBuffer }
         }
       ]
     });
@@ -242,7 +257,7 @@ class InfiniteScrollingPhotos {
             },
             {
               binding: 1,
-              resource: texture.createView()
+              resource: texture.createView({ label: 'Texture View' })
             }
           ]
         })
@@ -308,7 +323,14 @@ class InfiniteScrollingPhotos {
         storeOp: 'store',
       }]
     });
-  
+    renderPass.setViewport(
+      0,
+      0,
+      this.cw * window.devicePixelRatio,
+      this.ch * window.devicePixelRatio,
+      0,
+      1
+    );
     renderPass.setPipeline(pipeline)
     renderPass.setVertexBuffer(0, vertexBuffer)
     renderPass.setIndexBuffer(indexBuffer, 'uint16')
