@@ -188,7 +188,6 @@ export const getGridLayoutVertex = (photos: ISP_Photos, col: number, gap: number
     if (i % 2 === 1) {
       const colIndex = Math.floor(col / 2) + (i - 1) / 2 + offsetCol
       if (i === 1) {
-        console.log("first right col")
         rowInfo[1] += w / 2 + (isOddCol ? gap : gap / 2)
       } else {
         rowInfo[1] += w + gap

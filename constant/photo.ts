@@ -19,19 +19,18 @@ const wgslShader = /* wgsl */`
     @builtin (position) Position: vec4<f32>,
     @location(0) fragPosition   : vec2<f32>,
     @location(1) fragUV         : vec2<f32>,
-    @location(2) xy             : vec2<f32>,   // 顶点坐标
-    @location(3) wh             : vec2<f32>,   // 宽高
+    @location(2) wh             : vec2<f32>,
   };
 
   fn distanceFromRect(
-    pos   : vec2<f32>,
-    center: vec2<f32>,
-    corner: vec2<f32>,
-    radius: f32
+    pixelPos    : vec2<f32>,
+    rectCenter  : vec2<f32>,
+    rectCorner  : vec2<f32>,
+    cornerRadius: f32
   ) -> f32 {
-    var p = pos - center;
-    var q = abs(p) - (corner - radius);
-    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    var p = pixelPos - rectCenter;
+    var q = abs(p) - rectCorner + cornerRadius;
+    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - cornerRadius;
   }
 
   @vertex
@@ -44,11 +43,10 @@ const wgslShader = /* wgsl */`
     var matrix_index = u32(vertex_index / 4);
     var size_index = u32(matrix_index / 2);
     
-    output.Position = mvpMatrix[matrix_index] * vec4<f32>(pos, 1.0);
+    output.Position     = mvpMatrix[matrix_index] * vec4<f32>(pos, 1.0);
     output.fragPosition = pos.xy;
-    output.fragUV = uv;
-    output.xy = output.Position.xy;
-    output.wh = imgSize[size_index];
+    output.fragUV       = uv;
+    output.wh           = imgSize[size_index];
 
     return output;
   }
@@ -57,20 +55,20 @@ const wgslShader = /* wgsl */`
   fn frag_main(
     @location(0) fragPosition: vec2<f32>,
     @location(1) fragUV      : vec2<f32>,
-    @location(2) xy          : vec2<f32>,
-    @location(3) wh          : vec2<f32>,
+    @location(2) wh          : vec2<f32>,
   ) -> @location(0) vec4<f32> {
-    // todo 把图片的宽高传进来 要不要乘以矩阵信息？ 不要矩阵信息，把顶点坐标(屏幕居中)移动为uv坐标(第四象限)
-    // var a = fragPosition;
-    // var isInside = distanceFromRect(
-    //   xy,
-    //   vec2<f32>(xy.x / 2, xy.y / 2),
-    //   vec2<f32>(wh.x / 2, wh.y / 2),
-    //   0.25
-    //   ) < 0.00001;
-    // if (!isInside) {
-    //   discard;
-    // }
+    // 把顶点坐标(屏幕居中)移动到第一象限
+    var rectCorner = vec2<f32>(max(wh.x * 0.5, 0.0), max(wh.y * 0.5, 0.0));
+    var position = fragPosition + rectCorner;
+    var isInside = distanceFromRect(
+      position,
+      rectCorner + vec2<f32>(0.0, 0.0),
+      rectCorner,
+      0.02
+      ) < 0.00001;
+    if (!isInside) {
+      discard;
+    }
     return textureSample(Texture, Sampler, fragUV);
   }
 `
