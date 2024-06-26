@@ -29,6 +29,17 @@ const wgslShader = `
     rectangles: array<Rect>,
   }
 
+  fn distanceFromRect(
+    pixelPos    : vec2<f32>,
+    rectCenter  : vec2<f32>,
+    rectCorner  : vec2<f32>,
+    cornerRadius: f32
+  ) -> f32 {
+    var p = pixelPos - rectCenter;
+    var q = abs(p) - rectCorner + cornerRadius;
+    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - cornerRadius;
+  }
+
   @group(0) @binding(0) var<storage> data: RectStorage;
 
   @vertex
@@ -37,7 +48,7 @@ const wgslShader = `
     let r = data.rectangles[input.instance];
     let vertex = mix(
       r.position.xy,
-      r.position.xy + r.size.xy,
+      r.position.xy + r.size,
       input.position
     );
 
@@ -52,16 +63,29 @@ const wgslShader = `
   @fragment
   fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let r = data.rectangles[input.instance];
-    return r.color;
+
+    let isInside = distanceFromRect(
+      r.position,
+      r.position + r.size / 2,
+      r.size / 2,
+      0.02
+    ) < 0.00001;
+
+    if (isInside) {
+      discard;
+    }
+
+    return select(r.color, vec4<f32>(0.0, 0.0, 0.0, 1.0), isInside);
   }
 `
 onMounted(async () => {
-  async function UI (count: number) {
-    let rectCount = 0
-    
-    const rectStructSize = 9
+  async function UI () {
 
-    let rectData = new Float32Array(rectStructSize * count * 4)
+    const rectStructSize = 11
+    const RECTANGLE_BUFFER_SIZE = 16 * 1024;
+
+    let rectData = new Float32Array(RECTANGLE_BUFFER_SIZE)
+    let rectCount = 0
 
     if (!('gpu' in navigator)) {
       throw new Error('WebGPU not supported')
@@ -72,6 +96,9 @@ onMounted(async () => {
     if (canvas === null) {
       throw new Error('Canvas not found')
     }
+
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
 
     const context = canvas.getContext('webgpu') as GPUCanvasContext
 
@@ -105,7 +132,7 @@ onMounted(async () => {
 
     const rectBuffer = device.createBuffer({
       label: 'Rect buffer',
-      size: rectCount * rectStructSize * Float32Array.BYTES_PER_ELEMENT,
+      size: RECTANGLE_BUFFER_SIZE * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     })
 
@@ -162,7 +189,7 @@ onMounted(async () => {
       fragment: {
         module: triangleShader,
         entryPoint: 'fs_main',
-        targets: [{ format }]
+        targets: [{ format }],
       },
       primitive: {
         topology: 'triangle-list',
@@ -170,10 +197,6 @@ onMounted(async () => {
     })
 
     // Just regular full-screen quad consisting of two triangles.
-    // 0--1 4
-    // | / /|
-    // |/ / |
-    // 2 3--5
     device.queue.writeBuffer(vertexBuffer, 0, new Float32Array([
       0, 0,
       1, 0,
@@ -197,9 +220,11 @@ onMounted(async () => {
       rectData[rectCount * rectStructSize + 5] = position[1]
       rectData[rectCount * rectStructSize + 6] = size[0]
       rectData[rectCount * rectStructSize + 7] = size[1]
-      rectData[rectCount * rectStructSize + 8] = rounded
+      rectData[rectCount * rectStructSize + 8] = window.innerWidth
+      rectData[rectCount * rectStructSize + 9] = window.innerHeight
+      rectData[rectCount * rectStructSize + 10] = rounded
 
-      rectCount++
+      rectCount+= 1
     }
 
     function render() {
@@ -217,6 +242,8 @@ onMounted(async () => {
           },
         ],
       })
+      
+      device.queue.writeBuffer(rectBuffer, 0, rectData)
 
       renderPass.setViewport(
         0,
@@ -226,11 +253,8 @@ onMounted(async () => {
         0,
         1
       )
-      
-      device.queue.writeBuffer(rectBuffer, 0, rectData)
-
-      renderPass.setPipeline(rectPipeline)
       renderPass.setVertexBuffer(0, vertexBuffer)
+      renderPass.setPipeline(rectPipeline)
       renderPass.setBindGroup(0, rectBindGroup)
       renderPass.draw(6, rectCount)
       renderPass.end()
@@ -238,21 +262,42 @@ onMounted(async () => {
       device.queue.submit([commandEncoder.finish()])
 
       rectCount = 0
-      rectData = new Float32Array(rectStructSize * count * 4)
+      rectData = new Float32Array(RECTANGLE_BUFFER_SIZE)
     }
 
     return { drawRect, render }
   }
   
-  const ui = await UI(3)
+  const ui = await UI()
 
-  ui.drawRect(
-    [0, 0, 0, 1] , // color
-    [100, 100], // position
-    [300, 300], // size
-    25        , // rounded
-  )
+  function draw() {
+    ui.drawRect(
+      [0.1, 0.2, 0.1, 1.0], // color
+      [100, 100], // position
+      [300, 300], // size
+      25, // rounded
+    )
 
-  ui.render()
+    ui.drawRect(
+      [0.3, 0.3, 0.3, 1.0], // color
+      [500, 100], // position
+      [300, 300], // size
+      50, // rounded
+    )
+
+    ui.drawRect(
+      [0.4, 0.4, 0.4, 1.0], // color
+      [800, 200], // position
+      [300, 300], // size
+      50, // rounded
+    )
+
+    ui.render()
+
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+
 })
 </script>
