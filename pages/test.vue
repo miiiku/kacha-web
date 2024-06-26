@@ -23,9 +23,14 @@ const wgslShader = `
     size    : vec2<f32>,
     window  : vec2<f32>,
     rounded : f32,
+    _unused1: f32,
+    _unused2: f32,
+    _unused3: f32,
+    _unused4: f32,
+    _unused5: f32,
   }
 
-  struct RectStorage {
+  struct StorageData {
     rectangles: array<Rect>,
   }
 
@@ -40,7 +45,7 @@ const wgslShader = `
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - cornerRadius;
   }
 
-  @group(0) @binding(0) var<storage> data: RectStorage;
+  @group(0) @binding(0) var<storage> data: StorageData;
 
   @vertex
   fn vs_main(input: VertexInput) -> VertexOutput {
@@ -81,8 +86,8 @@ const wgslShader = `
 onMounted(async () => {
   async function UI () {
 
-    const rectStructSize = 11
-    const RECTANGLE_BUFFER_SIZE = 16 * 1024;
+    const rectStructSize = 16
+    const RECTANGLE_BUFFER_SIZE = 16 * 1024
 
     let rectData = new Float32Array(RECTANGLE_BUFFER_SIZE)
     let rectCount = 0
@@ -97,8 +102,8 @@ onMounted(async () => {
       throw new Error('Canvas not found')
     }
 
-    canvas.width = window.innerWidth
-    canvas.height = window.innerHeight
+    canvas.width = window.innerWidth * window.devicePixelRatio
+    canvas.height = window.innerHeight * window.devicePixelRatio
 
     const context = canvas.getContext('webgpu') as GPUCanvasContext
 
@@ -123,6 +128,16 @@ onMounted(async () => {
     context.configure({ device, format, alphaMode: 'opaque' })
     
     const triangleShader = device.createShaderModule({ code: wgslShader });
+
+    const colorTexture = device.createTexture({
+      label: "color texture",
+      size: { width: canvas.width, height: canvas.height },
+      sampleCount: 4,
+      format: "bgra8unorm",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+
+    const colorTextureView = colorTexture.createView({ label: "color" });
 
     const vertexBuffer = device.createBuffer({
       label: 'Vertex buffer',
@@ -194,6 +209,7 @@ onMounted(async () => {
       primitive: {
         topology: 'triangle-list',
       },
+      multisample: { count: 4 },
     })
 
     // Just regular full-screen quad consisting of two triangles.
@@ -223,6 +239,11 @@ onMounted(async () => {
       rectData[rectCount * rectStructSize + 8] = window.innerWidth
       rectData[rectCount * rectStructSize + 9] = window.innerHeight
       rectData[rectCount * rectStructSize + 10] = rounded
+      rectData[rectCount * rectStructSize + 11] = 0
+      rectData[rectCount * rectStructSize + 12] = 0
+      rectData[rectCount * rectStructSize + 13] = 0
+      rectData[rectCount * rectStructSize + 14] = 0
+      rectData[rectCount * rectStructSize + 15] = 0
 
       rectCount+= 1
     }
@@ -235,7 +256,8 @@ onMounted(async () => {
       const renderPass = commandEncoder.beginRenderPass({
         colorAttachments: [
           {
-            view: context.getCurrentTexture().createView(),
+            view: colorTextureView,
+            resolveTarget: context.getCurrentTexture().createView({ label: 'antialiased resolve target' }),
             clearValue: { r: 1, g: 1, b: 1, a: 1 },
             loadOp: 'clear',
             storeOp: 'store',
@@ -286,8 +308,8 @@ onMounted(async () => {
     )
 
     ui.drawRect(
-      [0.4, 0.4, 0.4, 1.0], // color
-      [800, 200], // position
+      [0.7, 0.7, 0.7, 1.0], // color
+      [900, 200], // position
       [300, 300], // size
       50, // rounded
     )
