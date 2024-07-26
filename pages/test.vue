@@ -9,9 +9,8 @@ import wgslShader from '@/shaders/test.wgsl?raw'
 
 onMounted(async () => {
   async function UI () {
-
-    const rectStructSize = 16
-    const RECTANGLE_BUFFER_SIZE = 16 * 1024
+    const rectStructSize = 9
+    const RECTANGLE_BUFFER_SIZE = 9 * 1024
 
     let rectData = new Float32Array(RECTANGLE_BUFFER_SIZE)
     let rectCount = 0
@@ -26,8 +25,7 @@ onMounted(async () => {
       throw new Error('Canvas not found')
     }
 
-    canvas.width = window.innerWidth * window.devicePixelRatio
-    canvas.height = window.innerHeight * window.devicePixelRatio
+    resize()
 
     const context = canvas.getContext('webgpu') as GPUCanvasContext
 
@@ -61,7 +59,7 @@ onMounted(async () => {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
 
-    const colorTextureView = colorTexture.createView({ label: "color" });
+    const colorTextureView = colorTexture.createView({ label: "color texture view" });
 
     const vertexBuffer = device.createBuffer({
       label: 'Vertex buffer',
@@ -75,40 +73,51 @@ onMounted(async () => {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     })
 
-    const rectBindGroupLayout = device.createBindGroupLayout({
-      label: 'Rect bind group layout',
+    const resolutionBuffer = device.createBuffer({
+      label: 'Resolution buffer',
+      size: 2 * Float32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+
+    const customBindGroupLayout = device.createBindGroupLayout({
+      label: 'custom bind group layout',
       entries: [
         {
           binding: 0,
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: {
-            type: 'read-only-storage',
-          },
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
         },
       ],
     })
 
-    const rectPipelineLayout = device.createPipelineLayout({
-      label: 'Rect pipeline layout',
-      bindGroupLayouts: [rectBindGroupLayout],
+    const customPipelineLayout = device.createPipelineLayout({
+      label: 'custom pipeline layout',
+      bindGroupLayouts: [customBindGroupLayout],
     })
 
-    const rectBindGroup = device.createBindGroup({
-      label: 'Rect bind group',
-      layout: rectBindGroupLayout,
+    const customBindGroup = device.createBindGroup({
+      label: 'custom bind group',
+      layout: customBindGroupLayout,
       entries: [
         {
           binding: 0,
-          resource: {
-            buffer: rectBuffer,
-          },
+          resource: { buffer: rectBuffer },
+        },
+        {
+          binding: 1,
+          resource: { buffer: resolutionBuffer },
         },
       ],
     })
 
-    const rectPipeline = device.createRenderPipeline({
-      label: 'Rect pipeline',
-      layout: rectPipelineLayout,
+    const customPipeline = device.createRenderPipeline({
+      label: 'custom pipeline',
+      layout: customPipelineLayout,
       vertex: {
         module: triangleShader,
         entryPoint: 'vs_main',
@@ -160,24 +169,27 @@ onMounted(async () => {
       rectData[rectCount * rectStructSize + 5] = position[1]
       rectData[rectCount * rectStructSize + 6] = size[0]
       rectData[rectCount * rectStructSize + 7] = size[1]
-      rectData[rectCount * rectStructSize + 8] = window.innerWidth
-      rectData[rectCount * rectStructSize + 9] = window.innerHeight
-      rectData[rectCount * rectStructSize + 10] = rounded
-      rectData[rectCount * rectStructSize + 11] = 0
-      rectData[rectCount * rectStructSize + 12] = 0
-      rectData[rectCount * rectStructSize + 13] = 0
-      rectData[rectCount * rectStructSize + 14] = 0
-      rectData[rectCount * rectStructSize + 15] = 0
+      rectData[rectCount * rectStructSize + 8] = rounded
 
       rectCount+= 1
     }
 
     function render() {
+      const vw = canvas.width
+      const vh = canvas.height
+
+      canvas.width = vw
+      canvas.height = vh
+      
+      device.queue.writeBuffer(rectBuffer, 0, rectData)
+      device.queue.writeBuffer(resolutionBuffer, 0, new Float32Array([vw, vh]))
+
       const commandEncoder = device.createCommandEncoder({
         label: 'Render command encoder',
       })
 
       const renderPass = commandEncoder.beginRenderPass({
+        label: 'Render pass',
         colorAttachments: [
           {
             view: colorTextureView,
@@ -188,20 +200,11 @@ onMounted(async () => {
           },
         ],
       })
-      
-      device.queue.writeBuffer(rectBuffer, 0, rectData)
 
-      renderPass.setViewport(
-        0,
-        0,
-        window.innerWidth * window.devicePixelRatio,
-        window.innerHeight * window.devicePixelRatio,
-        0,
-        1
-      )
+      renderPass.setViewport(0, 0, vw, vh, 0, 1)
       renderPass.setVertexBuffer(0, vertexBuffer)
-      renderPass.setPipeline(rectPipeline)
-      renderPass.setBindGroup(0, rectBindGroup)
+      renderPass.setPipeline(customPipeline)
+      renderPass.setBindGroup(0, customBindGroup)
       renderPass.draw(6, rectCount)
       renderPass.end()
 
@@ -211,6 +214,13 @@ onMounted(async () => {
       rectData = new Float32Array(RECTANGLE_BUFFER_SIZE)
     }
 
+    function resize() {
+      canvas.width = window.innerWidth * window.devicePixelRatio
+      canvas.height = window.innerHeight * window.devicePixelRatio
+    }
+
+    window.addEventListener('resize', resize)
+
     return { drawRect, render }
   }
   
@@ -218,7 +228,7 @@ onMounted(async () => {
 
   function draw() {
     ui.drawRect(
-      [0.1, 0.2, 0.1, 1.0], // color
+      [0.2, 0.2, 0.2, 1.0], // color
       [100, 100], // position
       [300, 300], // size
       25, // rounded
@@ -240,7 +250,7 @@ onMounted(async () => {
 
     ui.render()
 
-    requestAnimationFrame(draw);
+    // requestAnimationFrame(draw);
   }
 
   draw();

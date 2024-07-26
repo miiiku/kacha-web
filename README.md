@@ -45,7 +45,7 @@ fn sdBox(p: vec2<f32>, b: vec2<f32>) -> f32 {
 
 
 fn sdBoxRadius(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
-  let d = abs(p) - b;
+  let d = abs(p) - b + r;
   return length(max(d, vec2<f32>(0.0, 0.0))) + min(max(d.x, d.y), 0.0) - r;
 }
 
@@ -54,6 +54,7 @@ var<uniform> si: DefaultInput;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // 窗口坐标调整为[-1, 1]，坐标[0, 0]在屏幕中心
     let st = (in.pos.xy * 2 - si.resolution) / si.resolution.y;
     let lineColor = vec3(1.0, 1.0, 1.0);
     let bgColor = vec3(0.6, 0.6, 0.6);
@@ -68,10 +69,4 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = mix(bgColor, lineColor, 1.0 - smoothstep(0.0, 0.01, pct));
   
     return vec4(color, 1.0);
-  
-    // let li = in.pos.xy/si.resolution;
-    // let r = li.x * abs(sin(si.time * 0.1));
-    // let g = li.y * abs(cos(si.time * 0.2));
-    // let b = li.x * abs(cos(si.time * 0.3));
-    // return vec4<f32>(r, g , b, 1.0);
 }

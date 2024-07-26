@@ -13,13 +13,7 @@ struct Rect {
   color   : vec4<f32>,
   position: vec2<f32>,
   size    : vec2<f32>,
-  window  : vec2<f32>,
   rounded : f32,
-  _unused1: f32,
-  _unused2: f32,
-  _unused3: f32,
-  _unused4: f32,
-  _unused5: f32,
 }
 
 struct StorageData {
@@ -37,19 +31,27 @@ fn distanceFromRect(
   return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - cornerRadius;
 }
 
+fn sdBoxRadius(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
+  let d = abs(p) - b + r;
+  return length(max(d, vec2<f32>(0.0, 0.0))) + min(max(d.x, d.y), 0.0) - r;
+}
+
 @group(0) @binding(0) var<storage> data: StorageData;
+@group(0) @binding(1) var<storage> resolution: vec2<f32>;
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
-  let r = data.rectangles[input.instance];
+
+  let rect = data.rectangles[input.instance];
+
   let vertex = mix(
-    r.position.xy,
-    r.position.xy + r.size,
+    rect.position.xy,
+    rect.position.xy + rect.size,
     input.position
   );
 
-  output.position = vec4<f32>(vertex / r.window * 2 - 1, 0, 1);
+  output.position = vec4<f32>(vertex / resolution * 2 - 1, 0, 1);
   output.position.y = -output.position.y;
   output.vertex = vertex;
   output.instance = input.instance;
@@ -59,18 +61,28 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  let r = data.rectangles[input.instance];
+  let vertex   = input.vertex;
+  let position = input.position;
+  let size     = data.rectangles[input.instance].size;
 
-  let isInside = distanceFromRect(
-    r.position,
-    r.position + r.size / 2,
-    r.size / 2,
-    0.02
-  ) < 0.00001;
+  let fullSize = vec2<f32>(size + position.xy);
 
-  if (isInside) {
-    discard;
-  }
+  let st = (vertex * 2.0 - fullSize) / fullSize.y;
+  
 
-  return select(r.color, vec4<f32>(0.0, 0.0, 0.0, 1.0), isInside);
+  let pct = sdBoxRadius(st, vec2<f32>(0.8), 0.04);
+
+  let color = mix(vec4(0.0, 0.0, 0.0, 1.0), data.rectangles[input.instance].color, 1.0 - smoothstep(0.0, 0.01, pct));
+
+  return color;
+  // let r = data.rectangles[input.instance];
+  // let window = r.window;
+
+  // let st = (r.position * 2.0 - window) / window.y;
+
+  // let pct = sdBoxRadius(st, r.size, 0.04);
+
+  // let color = mix(vec4(0.6, 0.6, 0.6, 1.0), r.color, 1.0 - smoothstep(0.0, 0.01, pct));
+
+  // return color;
 }
